@@ -387,6 +387,9 @@ remain inside the checkout; empty targets fail. Same-document `#fragment`
 links and non-HTTP schemes such as `mailto:` are skipped.
 
 External `http(s)` links are only contacted when `external-links: check`.
+In both modes, malformed URLs, URLs without a host, and URLs with embedded
+`user:password@` credentials are rejected offline as confirmed broken and are
+never requested; credentials are redacted as `***@` in annotations.
 Each unique URL (fragment removed) is requested once with `GET`, a fixed
 User-Agent, no credentials or cookies, followed redirects, and the per-request
 timeout. Results are classified as:
@@ -394,7 +397,7 @@ timeout. Results are classified as:
 | Result | Causes | Retried | Outcome |
 | --- | --- | --- | --- |
 | OK | 2xx after redirects | - | Pass |
-| Broken (confirmed) | HTTP 404 or 410; malformed URL, URL without a host, or URL with embedded `user:password@` credentials (never requested) | No | Error; always fails |
+| Broken (confirmed) | HTTP 404 or 410; malformed, host-less, or credential-bearing URL (validated offline, never requested) | No | Error; always fails |
 | Transient | Timeout, DNS/connection error, HTTP 408, 425, 429, or 5xx | Up to `max-retries`, backoff 1s, 2s, 4s | Warning, or error when `fail-on-unconfirmed: true` |
 | Unverified | Other statuses (for example 401/403), TLS verification failure | No | Warning, or error when `fail-on-unconfirmed: true` |
 

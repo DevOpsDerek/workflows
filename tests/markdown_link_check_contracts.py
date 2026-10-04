@@ -299,14 +299,30 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
                 self.assertIn(f"'{self.base}/gone': confirmed HTTP 410", result.stdout)
                 self.assertIn("'https://': confirmed invalid URL", result.stdout)
                 self.assertIn("::error file=external.md,line=5::Broken external link 'http://[::1/x': confirmed invalid URL", result.stdout)
-                self.assertIn("::error file=external.md,line=6::Broken external link", result.stdout)
-                self.assertIn("confirmed invalid URL: embedded credentials are not allowed", result.stdout)
+                self.assertIn(
+                    f"::error file=external.md,line=6::Broken external link '{self.base.replace('http://', 'http://***@')}/ok': "
+                    "confirmed invalid URL: embedded credentials are not allowed",
+                    result.stdout,
+                )
+                self.assertNotIn("user:pw", result.stdout + result.stderr)
         self.assertEqual(Handler.counts["/missing"], 2)
         self.assertNotIn("/ok", Handler.counts)
 
+    def test_invalid_external_urls_fail_in_network_free_mode(self):
+        self.write("external.md", "[bad](https://)\n[nohost](http:///path)\n[ipv6](http://[::1/x)\n"
+                   "[creds](https://user:secret@example.invalid/x)\n[fine](https://example.invalid/ok)\n")
+        result = self.run_check(block_network=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        errors = [line for line in result.stdout.splitlines() if line.startswith("::error")]
+        self.assertEqual([line.split("::", 2)[1] for line in errors], [f"error file=external.md,line={n}" for n in (1, 2, 3, 4)])
+        self.assertIn("'https://***@example.invalid/x': confirmed invalid URL: embedded credentials are not allowed", result.stdout)
+        self.assertNotIn("secret", result.stdout + result.stderr)
+        self.assertNotIn("network access attempted", result.stdout + result.stderr)
+        self.assertIn("skipped=1", result.stdout)
+
     def test_python_version_step_requires_exact_supported_version(self):
         script = embedded_script("Validate exact Python version")
-        for value, code in (("3.12.8", 0), ("3.9.0", 0), ("4.0.0", 0), ("3.8.18", 1), ("2.7.18", 1), ("3.12", 1), ("3.12.x", 1)):
+        for value, code in (("3.12.8", 0), ("3.9.0", 0), ("4.0.0", 0), ("3.8.18", 2), ("2.7.18", 2), ("3.12", 2), ("3.12.x", 2)):
             with self.subTest(value=value):
                 result = subprocess.run(
                     ["bash", "-c", script], env={**os.environ, "PYTHON_VERSION": value},

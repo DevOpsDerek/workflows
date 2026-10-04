@@ -40,7 +40,10 @@ jobs:
         with:
           version: ${{ inputs.gh-aw-version || 'v0.89.21' }}
       - name: Test SHA-pinned remote imports and inlined locks
-        if: github.repository == 'DevOpsDerek/workflows' && github.event_name != 'workflow_call'
+        if: >-
+          github.repository == 'DevOpsDerek/workflows' &&
+          github.event_name != 'workflow_call' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ github.token }}
           CATALOG_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -129,9 +132,25 @@ jobs:
           runtime: python
           version: 3.12.8
           working-directory: tests/fixtures/python
-          script-path: outside.py
+          script-path: tests/fixtures/python/outside.py
       - name: Assert symlink escape was rejected
         if: steps.symlink.outcome != 'failure'
         run: |
           echo "::error::A symlink outside the working directory was accepted."
+          exit 1
+      - name: Create a working-directory symlink outside the checkout
+        run: ln -s /tmp tests/fixtures/python/outside-directory
+      - name: Reject working-directory escape
+        id: working-directory-escape
+        continue-on-error: true
+        uses: ./.github/actions/run-checked-script
+        with:
+          runtime: python
+          version: 3.12.8
+          working-directory: tests/fixtures/python/outside-directory
+          script-path: tests/fixtures/python/smoke.py
+      - name: Assert working-directory escape was rejected
+        if: steps.working-directory-escape.outcome != 'failure'
+        run: |
+          echo "::error::A working directory outside the checkout was accepted."
           exit 1

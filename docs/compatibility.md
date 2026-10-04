@@ -20,6 +20,11 @@ runner, command, output, or artifact behavior differs. Grant write permissions
 only to the narrowly scoped publishing job, if any; never pass publishing
 credentials to agentic workflows.
 
+Workflow permissions do not replace repository rulesets, branch protection,
+environment protection, or required human approvals. Verify those controls in
+each target repository's settings; do not infer that they exist from workflow
+YAML or documentation.
+
 Treat gh-aw shared patterns as prompts/configuration components, not a
 universal workflow to enable unmodified. Each consumer owns its local triggers,
 permissions, tool access, labels, and `.lock.yml`. Keep these sources and

@@ -65,15 +65,20 @@ runs:
       id: paths
       shell: bash
       env:
+        GITHUB_WORKSPACE: ${{ github.workspace }}
         RUNTIME: ${{ inputs.runtime }}
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         SCRIPT_PATH: ${{ inputs.script-path }}
       run: |
         set -euo pipefail
         workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-        cd "$GITHUB_WORKSPACE"
-        cd -- "$WORKING_DIRECTORY"
-        working_dir="$(pwd -P)"
+        case "/$WORKING_DIRECTORY/" in
+          *"/../"*) echo "::error::Working directory must not contain parent-directory components." ; exit 1 ;;
+        esac
+        case "$WORKING_DIRECTORY" in
+          /*|"") echo "::error::Working directory must be a non-empty repository-relative path." ; exit 1 ;;
+        esac
+        working_dir="$(realpath -- "$workspace/$WORKING_DIRECTORY")"
         case "$working_dir/" in
           "$workspace/"*) ;;
           *) echo "::error::Working directory must remain inside the checked-out repository." ; exit 1 ;;
@@ -84,7 +89,7 @@ runs:
         case "$SCRIPT_PATH" in
           /*|"") echo "::error::Script path must be a non-empty repository-relative path." ; exit 1 ;;
         esac
-        target="$(realpath -- "$SCRIPT_PATH")"
+        target="$(realpath -- "$workspace/$SCRIPT_PATH")"
         case "$target" in
           "$working_dir"/*) ;;
           "$working_dir")
@@ -101,13 +106,16 @@ runs:
           [[ -f "$target" ]] || { echo "::error::script-path must be a file (or a Go package directory)." ; exit 1; }
         fi
         echo "target=$target" >> "$GITHUB_OUTPUT"
+        echo "working-directory=$working_dir" >> "$GITHUB_OUTPUT"
     - name: Run Go tests
       if: inputs.runtime == 'go'
       shell: bash
       env:
         TARGET: ${{ steps.paths.outputs.target }}
+        WORKING_DIRECTORY: ${{ steps.paths.outputs.working-directory }}
       run: |
         set -euo pipefail
+        cd -- "$WORKING_DIRECTORY"
         cd -- "$TARGET"
         go test ./...
     - name: Run Python script
@@ -115,19 +123,22 @@ runs:
       shell: bash
       env:
         TARGET: ${{ steps.paths.outputs.target }}
-      run: python "$TARGET"
+        WORKING_DIRECTORY: ${{ steps.paths.outputs.working-directory }}
+      run: cd -- "$WORKING_DIRECTORY" && python "$TARGET"
     - name: Run Node.js script
       if: inputs.runtime == 'node'
       shell: bash
       env:
         TARGET: ${{ steps.paths.outputs.target }}
-      run: node "$TARGET"
+        WORKING_DIRECTORY: ${{ steps.paths.outputs.working-directory }}
+      run: cd -- "$WORKING_DIRECTORY" && node "$TARGET"
     - name: Run .NET tests
       if: inputs.runtime == 'dotnet'
       shell: bash
       env:
         TARGET: ${{ steps.paths.outputs.target }}
-      run: dotnet test "$TARGET"
+        WORKING_DIRECTORY: ${{ steps.paths.outputs.working-directory }}
+      run: cd -- "$WORKING_DIRECTORY" && dotnet test "$TARGET"
     - name: Validate Terraform configuration without a backend
       if: inputs.runtime == 'terraform'
       shell: bash

@@ -100,6 +100,45 @@ class LintWorkflowContractTests(unittest.TestCase):
                         self.assertEqual(actual[key].get("required"), "false")
                         self.assertEqual(actual[key].get("default"), default)
 
+    def test_reusable_lint_workflows_disable_persisted_checkout_credentials(self):
+        workflows = ROOT / ".github/workflows"
+        paths = [*workflows.glob("lint-*.yml"), workflows / "swiftlint.yml"]
+        self.assertEqual(
+            {path.name for path in paths},
+            {f"lint-{name}.yml" for name in CONTRACTS} | {"swiftlint.yml"},
+        )
+        for path in paths:
+            with self.subTest(workflow=path.name):
+                text = path.read_text(encoding="utf-8")
+                steps = re.split(r"(?=^      - )", text, flags=re.MULTILINE)
+                checkout_steps = [
+                    step for step in steps
+                    if re.search(r"^\s+uses:\s+actions/checkout@", step, re.MULTILINE)
+                ]
+                self.assertTrue(checkout_steps, "reusable lint workflow has no checkout")
+                for step in checkout_steps:
+                    self.assertRegex(step, r"(?m)^          persist-credentials: false$")
+
+                permission_blocks = []
+                lines = text.splitlines()
+                for index, line in enumerate(lines):
+                    match = re.fullmatch(r"( *)permissions:\s*", line)
+                    if not match:
+                        continue
+                    indent = len(match.group(1))
+                    block = []
+                    for child in lines[index + 1:]:
+                        if child.strip() and len(child) - len(child.lstrip()) <= indent:
+                            break
+                        if child.strip():
+                            block.append(child.strip())
+                    permission_blocks.append(block)
+                self.assertEqual(
+                    permission_blocks,
+                    [["contents: read"], ["contents: read"]],
+                    "workflow and job permissions must remain read-only",
+                )
+
     def test_caller_inputs_are_not_interpolated_as_shell(self):
         for path in (ROOT / ".github/workflows").glob("lint-*.yml"):
             with self.subTest(workflow=path.name):

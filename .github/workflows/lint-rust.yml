@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Check out caller repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - name: Validate working directory
         id: target
         uses: DevOpsDerek/workflows/.github/actions/validate-repository-directory@7f6c8dbd3156bd67db0d05ee2ab501028b16792f

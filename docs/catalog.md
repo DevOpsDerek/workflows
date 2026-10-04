@@ -388,7 +388,8 @@ remain inside the checkout; empty targets fail. Same-document `#fragment`
 links and non-HTTP schemes such as `mailto:` are skipped.
 
 External `http(s)` links are only contacted when `external-links: check`.
-In both modes, malformed URLs, URLs without a host, and URLs with embedded
+In both modes, malformed URLs (including whitespace, control characters, or
+invalid ports), URLs without a host, and URLs with embedded
 `user:password@` credentials are rejected offline as confirmed broken and are
 never requested; credentials are redacted as `***@` in annotations.
 Each unique URL (fragment removed) is requested once with `GET`, a fixed

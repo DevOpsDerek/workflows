@@ -336,11 +336,13 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
     def test_invalid_external_urls_fail_in_network_free_mode(self):
         self.write("external.md", "[bad](https://)\n[nohost](http:///path)\n[ipv6](http://[::1/x)\n"
                    "[creds](https://user:secret@example.invalid/x)\n[port](https://example.invalid:bad/x)\n"
-                   "[range](https://example.invalid:70000/x)\n[fine](https://example.invalid/ok)\n")
+                   "[range](https://example.invalid:70000/x)\n"
+                   "[space](<https://example.invalid/a b>)\n<a href=\"https://example.invalid/\tx\">tab</a>\n[fine](https://example.invalid/ok)\n")
         result = self.run_check(block_network=True)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         errors = [line for line in result.stdout.splitlines() if line.startswith("::error")]
-        self.assertEqual([line.split("::", 2)[1] for line in errors], [f"error file=external.md,line={n}" for n in (1, 2, 3, 4, 5, 6)])
+        self.assertEqual([line.split("::", 2)[1] for line in errors], [f"error file=external.md,line={n}" for n in (1, 2, 3, 4, 5, 6, 7, 8)])
+        self.assertIn("'https://example.invalid/a b': confirmed invalid URL: contains whitespace or control characters", result.stdout)
         self.assertIn("'https://***@example.invalid/x': confirmed invalid URL: embedded credentials are not allowed", result.stdout)
         self.assertNotIn("secret", result.stdout + result.stderr)
         self.assertNotIn("network access attempted", result.stdout + result.stderr)
@@ -364,7 +366,7 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
             "PYTHON_VERSION": ["0.0.1"],
             "WORKING_DIRECTORY": ["", "/tmp", "../caller", "docs/../docs", "docs/", "missing", "docs\\images", ".git", "docs/.git"],
             "MARKDOWN_PATHS": ["", "\n", "/etc/*.md", "../*.md", "docs\\*.md", " README.md", "missing/*.md"],
-            "EXCLUDE_PATHS": ["../x", "**/*.md"],
+            "EXCLUDE_PATHS": ["../x", "/abs/*.md", "docs\\*.md"],
             "EXCLUDE_LINKS": ["bad\x01prefix"],
             "EXTERNAL_LINKS": ["", "on", "true"],
             "TIMEOUT_SECONDS": ["0", "61", "1.5", "-1", "ten"],
@@ -377,6 +379,11 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
                     result = self.run_check(**{key: value})
                     self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                     self.assertIn("::error::", result.stdout)
+        result = self.run_check(EXCLUDE_PATHS="**/*.md")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("::error::markdown-paths matched no Markdown files after exclusions", result.stdout)
+        result = self.run_check(EXCLUDE_PATHS="docs/**")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         (self.workspace / "linked").symlink_to(self.workspace / "docs", target_is_directory=True)
         self.assertEqual(self.run_check(WORKING_DIRECTORY="linked").returncode, 2)
         outside = self.root / "outside.md"

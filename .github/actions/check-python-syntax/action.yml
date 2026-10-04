@@ -1,0 +1,42 @@
+name: Check Python syntax without execution
+description: Parse Python source into an AST without importing or executing it.
+inputs:
+  python-version:
+    description: Exact Python version to install.
+    required: true
+  source-path:
+    description: Repository-relative Python file or source directory to parse.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate exact Python version and source path
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+      run: |
+        set -euo pipefail
+        if [[ ! "$PYTHON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::python-version must be an exact three-part version (for example, 3.12.8)."
+          exit 1
+        fi
+        case "$SOURCE_PATH" in
+          ""|/*|../*|*/..|*/../*|*\\*) echo "::error::source-path must be repository-relative and must not traverse parent directories." ; exit 1 ;;
+        esac
+        if [[ "$SOURCE_PATH" != *.py ]]; then
+          echo "::error::source-path must name one .py file."
+          exit 1
+        fi
+    - name: Set up exact Python version
+      uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+      with:
+        python-version: ${{ inputs.python-version }}
+        check-latest: false
+    - name: Parse source without executing it
+      shell: bash
+      env:
+        CHECKER_PATH: ${{ github.action_path }}/check.py
+        GITHUB_WORKSPACE: ${{ github.workspace }}
+        SOURCE_PATH: ${{ inputs.source-path }}
+      run: python "$CHECKER_PATH" "$GITHUB_WORKSPACE" "$SOURCE_PATH"

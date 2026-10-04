@@ -1,0 +1,41 @@
+name: Validate GitHub Agentic Workflows
+description: Compile and validate local gh-aw workflow sources and their generated lock files.
+inputs:
+  gh-aw-version:
+    description: Exact gh-aw release tag to use for compilation.
+    required: false
+    default: v0.89.21
+  workflows-directory:
+    description: Directory containing the repository's gh-aw Markdown sources.
+    required: false
+    default: .github/workflows
+runs:
+  using: composite
+  steps:
+    - name: Install pinned gh-aw CLI
+      uses: github/gh-aw/actions/setup-cli@44af92291c2e544760940d3bfb8fcc37506c161e
+      with:
+        version: ${{ inputs.gh-aw-version }}
+    - name: Compile and validate agentic workflows
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        WORKFLOWS_DIRECTORY: ${{ inputs.workflows-directory }}
+      run: |
+        set -euo pipefail
+        [[ -d "$WORKFLOWS_DIRECTORY" ]] || {
+          echo "::error::Workflow directory '$WORKFLOWS_DIRECTORY' does not exist."
+          exit 1
+        }
+        if ! find "$WORKFLOWS_DIRECTORY" -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
+          echo "No local gh-aw workflow sources found; skipping compilation."
+          exit 0
+        fi
+
+        gh aw compile --validate --actionlint --no-check-update --dir "$WORKFLOWS_DIRECTORY"
+
+        if [[ -n "$(git status --porcelain -- "$WORKFLOWS_DIRECTORY")" ]]; then
+          echo "::error::gh-aw lock files are missing or out of date. Run 'gh aw compile --dir $WORKFLOWS_DIRECTORY' and commit the generated files."
+          git status --short -- "$WORKFLOWS_DIRECTORY"
+          exit 1
+        fi

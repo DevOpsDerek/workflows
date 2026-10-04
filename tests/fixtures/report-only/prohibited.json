@@ -1,0 +1,30 @@
+{
+  "caller_overrides": [
+    {"name": "comments", "frontmatter": "safe-outputs:\n  add-comment: {}\n"},
+    {"name": "issues", "frontmatter": "safe-outputs:\n  create-issue: {}\n"},
+    {"name": "pull requests", "frontmatter": "safe-outputs:\n  create-pull-request: {}\n"},
+    {"name": "merges", "frontmatter": "safe-outputs:\n  merge-pull-request: {}\n"},
+    {"name": "deployments", "frontmatter": "environment: production\n"},
+    {"name": "cloud credentials", "frontmatter": "permissions:\n  id-token: write\n"},
+    {"name": "live cloud state", "frontmatter": "tools:\n  bash: ['az:*', 'terraform:*']\n"},
+    {"name": "cluster access", "frontmatter": "tools:\n  bash: ['kubectl:*', 'helm:*']\n"},
+    {"name": "registry writes", "frontmatter": "tools:\n  bash: ['docker:*']\n"},
+    {"name": "file writes", "frontmatter": "tools:\n  edit: true\n"},
+    {"name": "repository reads", "frontmatter": "tools:\n  github:\n    allowed: [get_file_contents]\n"},
+    {"name": "checkout", "frontmatter": "checkout: true\n"},
+    {"name": "privileged trigger", "frontmatter": "on:\n  pull_request_target:\n"},
+    {"name": "secret forwarding", "frontmatter": "env:\n  TOKEN: '${{ secrets.TOKEN }}'\n"},
+    {"name": "custom jobs", "frontmatter": "jobs:\n  publish:\n    runs-on: ubuntu-latest\n"},
+    {"name": "custom MCP", "frontmatter": "mcp-servers:\n  external: {}\n"},
+    {"name": "runtime imports", "frontmatter": "inlined-imports: false\n"}
+  ],
+  "prohibited_paths": [
+    "data/latest.json", "exports/history.csv", "backups/customer.json",
+    "private/source.py", "locations/history.csv", "docs/location-history.md",
+    ".env", "config/.env.production", ".aws/config", ".kube/config",
+    "terraform/terraform.tfstate", "terraform/plan.tfplan", "secrets/token.txt",
+    "config/credentials.json", "certs/server.pem", "certs/key.key",
+    "../README.md", "/tmp/input.md", "docs/../../data.json", "docs/*.md",
+    "docs\\lesson.md", "https://example.com/evidence", "docs//lesson.md"
+  ]
+}

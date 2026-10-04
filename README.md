@@ -6,6 +6,7 @@ Workflow (gh-aw) components for DevOpsDerek repositories.
 - [Reusable workflow and composite-action catalog](docs/catalog.md)
 - [Shared agentic patterns and consumer setup](docs/agentic-patterns.md)
 - [Compatibility and privacy guidance](docs/compatibility.md)
+- [Report-only contract proposals and runtime blocker](docs/report-only-contracts.md)
 
 Consumers should pin every reference to this repository to a full, immutable
 40-character commit SHA. Each consuming repository keeps its own gh-aw trigger

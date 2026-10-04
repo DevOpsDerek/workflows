@@ -82,6 +82,16 @@ class SwiftLintContracts(unittest.TestCase):
         self.assertIn('[[ "$("$install_dir/tool/swiftlint" version)" == "$SWIFTLINT_VERSION" ]]', WORKFLOW)
         self.assertIn('[[ "$actual" == "Xcode $XCODE_VERSION" ]]', WORKFLOW)
 
+    def test_caller_example_uses_immutable_top_level_workflow_and_both_roots(self):
+        catalog = (ROOT / "docs/catalog.md").read_text(encoding="utf-8")
+        section = catalog.split("## Lint Swift on macOS\n", 1)[1].split("\n## ", 1)[0]
+        self.assertRegex(
+            section,
+            r"uses: DevOpsDerek/workflows/\.github/workflows/swiftlint\.yml@[0-9a-f]{40}\n",
+        )
+        self.assertIn('source-roots: \'["Supercar", "SupercarTests"]\'', section)
+        self.assertIn("config-path: .swiftlint.yml", section)
+
     def test_exact_versions(self):
         for version in ("0.65.1", "1.2.3"):
             self.assertEqual(self.run_script(VALIDATE, SWIFTLINT_VERSION=version).returncode, 0)

@@ -287,7 +287,8 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
 
     def test_confirmed_broken_external_links_fail_regardless_of_policy(self):
         self.write("external.md", f"[missing]({self.base}/missing)\n[gone]({self.base}/gone)\n[bad](https://)\n"
-                   f"[again]({self.base}/missing#section)\n[ipv6](http://[::1/x)\n")
+                   f"[again]({self.base}/missing#section)\n[ipv6](http://[::1/x)\n"
+                   f"[creds]({self.base.replace('http://', 'http://user:pw@')}/ok)\n")
         for policy in ("false", "true"):
             with self.subTest(policy=policy):
                 result = self.run_check(EXTERNAL_LINKS="check", FAIL_ON_UNCONFIRMED=policy)
@@ -298,7 +299,10 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
                 self.assertIn(f"'{self.base}/gone': confirmed HTTP 410", result.stdout)
                 self.assertIn("'https://': confirmed invalid URL", result.stdout)
                 self.assertIn("::error file=external.md,line=5::Broken external link 'http://[::1/x': confirmed invalid URL", result.stdout)
+                self.assertIn("::error file=external.md,line=6::Broken external link", result.stdout)
+                self.assertIn("confirmed invalid URL: embedded credentials are not allowed", result.stdout)
         self.assertEqual(Handler.counts["/missing"], 2)
+        self.assertNotIn("/ok", Handler.counts)
 
     def test_python_version_step_requires_exact_supported_version(self):
         script = embedded_script("Validate exact Python version")

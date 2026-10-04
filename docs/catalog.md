@@ -394,7 +394,7 @@ timeout. Results are classified as:
 | Result | Causes | Retried | Outcome |
 | --- | --- | --- | --- |
 | OK | 2xx after redirects | - | Pass |
-| Broken (confirmed) | HTTP 404 or 410; URL without a host | No | Error; always fails |
+| Broken (confirmed) | HTTP 404 or 410; malformed URL, URL without a host, or URL with embedded `user:password@` credentials (never requested) | No | Error; always fails |
 | Transient | Timeout, DNS/connection error, HTTP 408, 425, 429, or 5xx | Up to `max-retries`, backoff 1s, 2s, 4s | Warning, or error when `fail-on-unconfirmed: true` |
 | Unverified | Other statuses (for example 401/403), TLS verification failure | No | Warning, or error when `fail-on-unconfirmed: true` |
 

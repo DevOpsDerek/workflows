@@ -348,9 +348,12 @@ jobs:
           def check_external(url, settings, deadline):
               clean = url.split("#", 1)[0]
               try:
-                  hostname = urllib.parse.urlsplit(clean).hostname
+                  parsed = urllib.parse.urlsplit(clean)
+                  hostname = parsed.hostname
               except ValueError as error:
                   return ("broken", f"invalid URL: {error}", 0)
+              if parsed.username is not None or parsed.password is not None:
+                  return ("broken", "invalid URL: embedded credentials are not allowed", 0)
               if not hostname:
                   return ("broken", "invalid URL: missing host", 0)
               attempts = 0

@@ -92,7 +92,8 @@ contracts, and normal/failure behavior can be tested centrally.
 
 The separate `markdown-link-check.yml` workflow validates local Markdown
 links without network access by default. External link checking is opt-in;
-only HTTP 404/410 and host-less URLs are treated as confirmed broken, while
+only HTTP 404/410 and malformed, host-less, or credential-bearing URLs are
+treated as confirmed broken, while
 timeouts, connection errors, rate limits, server errors, and access-restricted
 responses are reported as transient or unverified warnings unless the caller
 sets `fail-on-unconfirmed: true`. Keep required pull-request checks

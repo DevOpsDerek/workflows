@@ -1,0 +1,45 @@
+name: Test reusable lint callers
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    uses: ./.github/workflows/lint-go.yml
+    with:
+      go-version: 1.23.12
+      golangci-lint-version: 1.64.8
+      working-directory: tests/fixtures/lint/go
+  python:
+    uses: ./.github/workflows/lint-python-ruff.yml
+    with:
+      working-directory: tests/fixtures/lint/python
+  shell:
+    uses: ./.github/workflows/lint-shell.yml
+    with:
+      working-directory: tests/fixtures/lint/shell
+  powershell:
+    uses: ./.github/workflows/lint-powershell.yml
+    with:
+      working-directory: tests/fixtures/lint/powershell
+  markdown:
+    uses: ./.github/workflows/lint-markdown.yml
+    with:
+      working-directory: tests/fixtures/lint/markdown
+  terraform:
+    uses: ./.github/workflows/lint-terraform.yml
+    with:
+      working-directory: tests/fixtures/lint/terraform
+  rust:
+    uses: ./.github/workflows/lint-rust.yml
+    with:
+      working-directory: tests/fixtures/lint/rust
+  helm:
+    uses: ./.github/workflows/lint-helm.yml
+    with:
+      chart-path: tests/fixtures/lint/helm

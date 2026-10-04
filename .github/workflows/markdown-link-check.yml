@@ -1,0 +1,417 @@
+name: Check Markdown links
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: Exact three-part Python version used to run the bundled checker.
+        required: false
+        type: string
+        default: 3.12.8
+      working-directory:
+        description: Repository-relative directory whose Markdown files are scanned.
+        required: false
+        type: string
+        default: .
+      markdown-paths:
+        description: Newline-separated globs (*, ?, **) relative to working-directory, not shell text.
+        required: false
+        type: string
+        default: "**/*.md"
+      exclude-paths:
+        description: Newline-separated globs relative to working-directory for Markdown files to skip.
+        required: false
+        type: string
+        default: ""
+      exclude-links:
+        description: Newline-separated literal link-target prefixes to skip.
+        required: false
+        type: string
+        default: ""
+      external-links:
+        description: "'skip' (network-free, default) or 'check' to probe http(s) links."
+        required: false
+        type: string
+        default: skip
+      timeout-seconds:
+        description: Per-request external link timeout in seconds (1-60).
+        required: false
+        type: number
+        default: 10
+      max-retries:
+        description: Retries for transient external failures (0-5).
+        required: false
+        type: number
+        default: 2
+      fail-on-unconfirmed:
+        description: Fail on transient or unverified external results instead of warning.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Markdown links
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate exact Python version
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: |
+          set -euo pipefail
+          [[ "$PYTHON_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "::error::python-version must be an exact three-part version."
+            exit 1
+          }
+      - name: Set up pinned Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ inputs.python-version }}
+          check-latest: false
+      - name: Check Markdown links
+        shell: python
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          MARKDOWN_PATHS: ${{ inputs.markdown-paths }}
+          EXCLUDE_PATHS: ${{ inputs.exclude-paths }}
+          EXCLUDE_LINKS: ${{ inputs.exclude-links }}
+          EXTERNAL_LINKS: ${{ inputs.external-links }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+          MAX_RETRIES: ${{ inputs.max-retries }}
+          FAIL_ON_UNCONFIRMED: ${{ inputs.fail-on-unconfirmed }}
+        run: |
+          import concurrent.futures
+          import functools
+          import http.client
+          import os
+          import pathlib
+          import platform
+          import re
+          import socket
+          import ssl
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          USER_AGENT = "DevOpsDerek-workflows-markdown-link-check/1"
+          MAX_WORKERS = 8
+          TIME_BUDGET_SECONDS = 600
+          CONFIRMED_BROKEN = {404, 410}
+          TRANSIENT_STATUSES = {408, 425, 429}
+          CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+          SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+          INLINE = re.compile(
+              r"!?\[(?:[^\[\]\n]|\[[^\[\]\n]*\])*\]\(\s*(<[^<>\n]*>|[^\s()<>]*(?:\([^\s()]*\)[^\s()<>]*)*)"
+              r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\)))?\s*\)"
+          )
+          REFERENCE = re.compile(r"^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^<>\n]*>|\S+)", re.MULTILINE)
+          AUTOLINK = re.compile(r"<(https?://[^<>\s]+)>", re.IGNORECASE)
+          HTML = re.compile(
+              r"<(?:a|img)\b[^>]*?\s(?:href|src)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", re.IGNORECASE
+          )
+          FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+          class InputError(ValueError):
+              pass
+
+
+          def escape_data(value):
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+          def escape_property(value):
+              return escape_data(value).replace(":", "%3A").replace(",", "%2C")
+
+
+          def annotate(level, file, line, message):
+              print(f"::{level} file={escape_property(file)},line={line}::{escape_data(message)}")
+
+
+          def entries(name, required):
+              values = [value for value in os.environ[name].split("\n") if value.strip()]
+              for value in values:
+                  if CONTROL.search(value):
+                      raise InputError(f"{name.lower()} entries must not contain control characters")
+              if required and not values:
+                  raise InputError(f"{name.lower()} must contain at least one entry")
+              return values
+
+
+          def glob_pattern(name, value):
+              if value.startswith("/") or "\\" in value or ".." in value.split("/") or value != value.strip():
+                  raise InputError(f"{name} entries must be repository-relative globs without traversal: {value!r}")
+              output = []
+              index = 0
+              while index < len(value):
+                  if value.startswith("**/", index):
+                      output.append("(?:[^/]+/)*")
+                      index += 3
+                  elif value.startswith("**", index):
+                      output.append(".*")
+                      index += 2
+                  elif value[index] == "*":
+                      output.append("[^/]*")
+                      index += 1
+                  elif value[index] == "?":
+                      output.append("[^/]")
+                      index += 1
+                  else:
+                      output.append(re.escape(value[index]))
+                      index += 1
+              return re.compile("".join(output) + r"\Z")
+
+
+          def bounded_integer(name, value, minimum, maximum):
+              if not re.fullmatch(r"0|[1-9][0-9]*", value) or not minimum <= int(value) <= maximum:
+                  raise InputError(f"{name} must be an integer from {minimum} to {maximum}")
+              return int(value)
+
+
+          def load_settings():
+              expected = os.environ["PYTHON_VERSION"]
+              if platform.python_version() != expected:
+                  raise InputError(f"active Python {platform.python_version()} does not match python-version {expected}")
+              workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve(strict=True)
+              directory_value = os.environ["WORKING_DIRECTORY"]
+              target = workspace
+              if directory_value != ".":
+                  parts = directory_value.split("/")
+                  if CONTROL.search(directory_value) or "\\" in directory_value or any(part in ("", ".", "..") for part in parts):
+                      raise InputError("working-directory must be '.' or a repository-relative directory without traversal")
+                  for part in parts:
+                      target = target / part
+                      if target.is_symlink():
+                          raise InputError("working-directory must not contain symlinks")
+              if not target.is_dir():
+                  raise InputError("working-directory must be an existing directory")
+              mode = os.environ["EXTERNAL_LINKS"]
+              if mode not in ("skip", "check"):
+                  raise InputError("external-links must be 'skip' or 'check'")
+              fail_unconfirmed = os.environ["FAIL_ON_UNCONFIRMED"]
+              if fail_unconfirmed not in ("true", "false"):
+                  raise InputError("fail-on-unconfirmed must be a boolean")
+              return {
+                  "workspace": workspace,
+                  "directory": target.resolve(strict=True),
+                  "include": [glob_pattern("markdown-paths", value) for value in entries("MARKDOWN_PATHS", True)],
+                  "exclude": [glob_pattern("exclude-paths", value) for value in entries("EXCLUDE_PATHS", False)],
+                  "exclude_links": entries("EXCLUDE_LINKS", False),
+                  "check_external": mode == "check",
+                  "timeout": bounded_integer("timeout-seconds", os.environ["TIMEOUT_SECONDS"], 1, 60),
+                  "retries": bounded_integer("max-retries", os.environ["MAX_RETRIES"], 0, 5),
+                  "fail_unconfirmed": fail_unconfirmed == "true",
+              }
+
+
+          def markdown_files(settings):
+              workspace, directory = settings["workspace"], settings["directory"]
+              found = []
+              for parent, children, names in os.walk(directory, followlinks=False):
+                  children[:] = sorted(child for child in children if child != ".git")
+                  for name in sorted(names):
+                      path = pathlib.Path(parent) / name
+                      relative = path.relative_to(directory).as_posix()
+                      if not any(pattern.match(relative) for pattern in settings["include"]):
+                          continue
+                      if any(pattern.match(relative) for pattern in settings["exclude"]):
+                          continue
+                      resolved = path.resolve()
+                      if not resolved.is_relative_to(workspace) or not resolved.is_file():
+                          raise InputError(f"Markdown file must resolve to a file inside the checkout: {relative}")
+                      found.append(path)
+              if not found:
+                  raise InputError("markdown-paths matched no Markdown files after exclusions")
+              return found
+
+
+          def blank(match):
+              return re.sub(r"[^\n]", " ", match.group(0))
+
+
+          def masked_text(text):
+              text = re.sub(r"<!--.*?-->", blank, text, flags=re.DOTALL)
+              lines = text.split("\n")
+              fence = None
+              for index, line in enumerate(lines):
+                  opener = FENCE.match(line)
+                  if fence is None and opener:
+                      fence = opener.group(1)
+                      lines[index] = ""
+                  elif fence is not None:
+                      closer = FENCE.match(line)
+                      if closer and closer.group(1)[0] == fence[0] and len(closer.group(1)) >= len(fence) and not line.strip(" `~"):
+                          fence = None
+                      lines[index] = ""
+              text = "\n".join(lines)
+              text = re.sub(r"(`+)(?:(?!\1).)+?\1", blank, text)
+              return re.sub(r"\\[\[\]()<>]", "  ", text)
+
+
+          def links(text):
+              masked = masked_text(text)
+              found = set()
+              for pattern in (INLINE, REFERENCE, AUTOLINK, HTML):
+                  for match in pattern.finditer(masked):
+                      group = next(index for index in range(1, (pattern.groups or 0) + 1) if match.group(index) is not None)
+                      target = match.group(group)
+                      if target.startswith("<") and target.endswith(">"):
+                          target = target[1:-1]
+                      found.add((masked.count("\n", 0, match.start(group)) + 1, target.strip()))
+              return sorted(found)
+
+
+          @functools.lru_cache(maxsize=None)
+          def directory_entries(directory):
+              try:
+                  return frozenset(os.listdir(directory))
+              except OSError:
+                  return frozenset()
+
+
+          def exact_case_exists(path):
+              current = pathlib.Path(path.anchor)
+              for part in path.parts[1:]:
+                  if part not in directory_entries(str(current)):
+                      return False
+                  current = current / part
+              return True
+
+
+          def check_local(settings, source, target):
+              path_text = urllib.parse.unquote(re.split(r"[?#]", target, maxsplit=1)[0])
+              if not path_text:
+                  return None
+              if "\x00" in path_text or "\\" in path_text:
+                  return "invalid local path"
+              workspace = settings["workspace"]
+              base = workspace if path_text.startswith("/") else source.parent
+              candidate = pathlib.Path(os.path.normpath(base / path_text.lstrip("/")))
+              if not candidate.is_relative_to(workspace) or not candidate.resolve().is_relative_to(workspace):
+                  return "target escapes the repository"
+              if not exact_case_exists(candidate):
+                  return "target path does not exist (paths are case-sensitive)"
+              return None
+
+
+          def probe(url, timeout):
+              request = urllib.request.Request(url, method="GET", headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+              try:
+                  with urllib.request.urlopen(request, timeout=timeout) as response:
+                      return ("ok", f"HTTP {response.status}")
+              except urllib.error.HTTPError as error:
+                  if error.code in CONFIRMED_BROKEN:
+                      return ("broken", f"HTTP {error.code}")
+                  if error.code in TRANSIENT_STATUSES or error.code >= 500:
+                      return ("transient", f"HTTP {error.code}")
+                  return ("unverified", f"HTTP {error.code}")
+              except urllib.error.URLError as error:
+                  reason = error.reason
+                  if isinstance(reason, ssl.SSLCertVerificationError):
+                      return ("unverified", f"TLS verification failed: {reason}")
+                  if isinstance(reason, (TimeoutError, socket.timeout)):
+                      return ("transient", "timed out")
+                  return ("transient", f"connection error: {reason}")
+              except (TimeoutError, socket.timeout):
+                  return ("transient", "timed out")
+              except (http.client.InvalidURL, ValueError) as error:
+                  return ("broken", f"invalid URL: {error}")
+              except (http.client.HTTPException, OSError) as error:
+                  return ("transient", f"connection error: {error}")
+
+
+          def check_external(url, settings, deadline):
+              clean = urllib.parse.urldefrag(url)[0]
+              parsed = urllib.parse.urlsplit(clean)
+              if not parsed.hostname:
+                  return ("broken", "invalid URL: missing host", 0)
+              attempts = 0
+              while True:
+                  if time.monotonic() > deadline:
+                      return ("transient", "link-check time budget exhausted", attempts)
+                  attempts += 1
+                  category, detail = probe(clean, settings["timeout"])
+                  if category != "transient" or attempts > settings["retries"]:
+                      return (category, detail, attempts)
+                  time.sleep(min(2 ** (attempts - 1), 4))
+
+
+          def main():
+              settings = load_settings()
+              print(f"Python {platform.python_version()}; external links: {'check' if settings['check_external'] else 'skip (network-free)'}")
+              workspace = settings["workspace"]
+              occurrences = []
+              for source in markdown_files(settings):
+                  text = source.read_text(encoding="utf-8", errors="replace")
+                  for line, target in links(text):
+                      occurrences.append((source, line, target))
+              counts = dict.fromkeys(("checked", "excluded", "skipped", "broken", "transient", "unverified"), 0)
+              local_findings = []
+              external = {}
+              for source, line, target in occurrences:
+                  if any(target.startswith(prefix) for prefix in settings["exclude_links"]):
+                      counts["excluded"] += 1
+                  elif not target:
+                      local_findings.append((source, line, target, "empty link target"))
+                  elif target.startswith("#"):
+                      counts["skipped"] += 1
+                  elif SCHEME.match(target):
+                      if target.lower().startswith(("http://", "https://")) and settings["check_external"]:
+                          external.setdefault(target, []).append((source, line))
+                      else:
+                          counts["skipped"] += 1
+                  elif target.startswith("//"):
+                      counts["skipped"] += 1
+                  else:
+                      counts["checked"] += 1
+                      problem = check_local(settings, source, target)
+                      if problem:
+                          local_findings.append((source, line, target, problem))
+              for source, line, target, problem in local_findings:
+                  counts["broken"] += 1
+                  annotate("error", source.relative_to(workspace).as_posix(), line, f"Broken local link '{target}': {problem}")
+              if external:
+                  deadline = time.monotonic() + TIME_BUDGET_SECONDS
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+                      results = dict(zip(sorted(external), pool.map(lambda url: check_external(url, settings, deadline), sorted(external))))
+                  reports = []
+                  for url, (category, detail, attempts) in results.items():
+                      for source, line in external[url]:
+                          counts["checked"] += 1
+                          if category != "ok":
+                              counts[category] += 1
+                              reports.append((source.relative_to(workspace).as_posix(), line, url, category, detail, attempts))
+                  for file, line, url, category, detail, attempts in sorted(reports):
+                      if category == "broken":
+                          annotate("error", file, line, f"Broken external link '{url}': confirmed {detail}")
+                      else:
+                          level = "error" if settings["fail_unconfirmed"] else "warning"
+                          label = "Transient failure" if category == "transient" else "Unverified"
+                          annotate(level, file, line, f"{label} for external link '{url}' after {attempts} attempt(s): {detail}; not confirmed broken")
+              print("Summary: " + ", ".join(f"{key}={value}" for key, value in counts.items()))
+              if counts["broken"]:
+                  return 1
+              if settings["fail_unconfirmed"] and (counts["transient"] or counts["unverified"]):
+                  return 3
+              return 0
+
+
+          try:
+              sys.exit(main())
+          except (InputError, OSError) as error:
+              print(f"::error::{escape_data(str(error))}")
+              sys.exit(2)

@@ -245,6 +245,8 @@ jobs:
         run: python3 tests/validate_repository_directory.py
       - name: Test reusable lint workflow contracts
         run: python3 tests/lint_workflow_contracts.py
+      - name: Test Markdown link-check contracts
+        run: python3 tests/markdown_link_check_contracts.py
       - name: Install analyzer for executable PowerShell contract tests
         shell: pwsh
         run: |

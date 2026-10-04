@@ -43,3 +43,7 @@ jobs:
     uses: ./.github/workflows/lint-helm.yml
     with:
       chart-path: tests/fixtures/lint/helm
+  markdown-links:
+    uses: ./.github/workflows/markdown-link-check.yml
+    with:
+      working-directory: tests/fixtures/markdown-links

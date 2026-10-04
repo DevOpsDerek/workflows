@@ -86,10 +86,18 @@ context; this catalog does not provide a location-data agent workflow.
 The Helm lint workflow is not a Kubernetes API-schema validator. No offline
 Kubernetes manifest schema bundle has been established, so Kubernetes
 schema/policy validation remains local to consumers. ARM/Bicep semantic
-validation, SwiftLint on a verified macOS toolchain, and network-dependent
-Markdown link checking are also not provided by this catalog revision. Keep
-those checks in their existing consumer jobs until their exact tool versions,
-input/config contracts, and normal/failure behavior can be tested centrally.
+validation is also not provided by this catalog revision. Keep those checks
+in their existing consumer jobs until their exact tool versions, input/config
+contracts, and normal/failure behavior can be tested centrally.
+
+The separate `markdown-link-check.yml` workflow validates local Markdown
+links without network access by default. External link checking is opt-in;
+only HTTP 404/410 and host-less URLs are treated as confirmed broken, while
+timeouts, connection errors, rate limits, server errors, and access-restricted
+responses are reported as transient or unverified warnings unless the caller
+sets `fail-on-unconfirmed: true`. Keep required pull-request checks
+network-free unless the repository accepts third-party availability as a
+merge dependency.
 
 ## Private repositories
 

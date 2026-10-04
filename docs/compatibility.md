@@ -43,6 +43,14 @@ environment protection, or required human approvals. Verify those controls in
 each target repository's settings; do not infer that they exist from workflow
 YAML or documentation.
 
+The top-level `swiftlint.yml` helper is macOS-only, separate from the generic
+language/IaC lint helpers. It requires explicit source roots and a caller-owned
+SwiftLint config, pins SwiftLint and the installed Xcode release, and performs
+lint-only checks. Keep the caller's build/test toolchain, rules, exclusions,
+and required-check names consistent with its existing policy. The default
+strict mode fails on warnings; callers may select normal error-only failure.
+It does not format, autofix, build, or replace XCTest.
+
 Treat gh-aw shared patterns as prompts/configuration components, not a
 universal workflow to enable unmodified. Each consumer owns its local triggers,
 permissions, tool access, labels, and `.lock.yml`. Keep these sources and

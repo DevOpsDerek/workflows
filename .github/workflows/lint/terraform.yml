@@ -1,0 +1,59 @@
+name: Lint and validate Terraform
+
+on:
+  workflow_call:
+    inputs:
+      terraform-version:
+        description: Exact Terraform CLI version.
+        required: false
+        type: string
+        default: 1.11.4
+      working-directory:
+        description: Repository-relative directory containing the Terraform root.
+        required: false
+        type: string
+        default: .
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Terraform fmt and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate working directory
+        id: target
+        uses: DevOpsDerek/workflows/.github/actions/validate-repository-directory@7f6c8dbd3156bd67db0d05ee2ab501028b16792f
+        with:
+          path: ${{ inputs.working-directory }}
+          name: working-directory
+      - name: Validate exact version
+        shell: bash
+        env:
+          TERRAFORM_VERSION: ${{ inputs.terraform-version }}
+        run: |
+          set -euo pipefail
+          [[ "$TERRAFORM_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::terraform-version must be an exact three-part version."
+            exit 1
+          }
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+          terraform_wrapper: false
+      - name: Check formatting
+        working-directory: ${{ steps.target.outputs.absolute-path }}
+        run: terraform fmt -check -recursive
+      - name: Initialize without a backend and validate
+        working-directory: ${{ steps.target.outputs.absolute-path }}
+        run: |
+          set -euo pipefail
+          terraform init -backend=false -input=false -no-color -lockfile=readonly
+          terraform validate -no-color

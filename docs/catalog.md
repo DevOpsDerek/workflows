@@ -217,3 +217,57 @@ jobs:
 
 This is a syntax-only complement, not a replacement for a repository's pytest,
 Ruff, OS/Python-version matrix, coverage, or artifact-producing checks.
+
+## Language and IaC lint workflows
+
+These reusable workflows run fixed, non-autofixing lint/validation commands
+against the checked-out caller repository. They do not accept caller shell
+commands, secrets, deployment inputs, or write permissions. Pin every `uses`
+reference to the same full catalog commit SHA. Each `working-directory` is a
+repository-relative directory validated against traversal and symlink escapes.
+Tool/runtime version inputs are optional exact three-part versions; defaults
+are shown below.
+
+| Workflow path | Inputs (defaults in parentheses) | Behavior |
+| --- | --- | --- |
+| `.github/workflows/lint/python-ruff.yml` | `python-version` (`3.12.8`), `ruff-version` (`0.11.13`), `working-directory` (`.`) | `ruff check --no-fix` and `ruff format --check`; caller Ruff config remains authoritative |
+| `.github/workflows/lint/go.yml` | `go-version` (`1.24.2`), `golangci-lint-version` (`1.64.8`), `working-directory` (`.`) | `golangci-lint run`; downloads the exact v1/v2 Linux release binary, preserving caller-owned configuration and avoiding a Go-version requirement from building the linter |
+| `.github/workflows/lint/rust.yml` | `rust-version` (`1.86.0`), `working-directory` (`.`) | Installs the pinned Rust toolchain and runs `cargo fmt --all -- --check`; does not build or execute project code |
+| `.github/workflows/lint/shell.yml` | `shellcheck-version` (`0.10.0`), `working-directory` (`.`) | Checks `.sh`, `.bash`, and `.bats` files as Bash with `--severity=style`; mixed POSIX-shell trees should keep their existing shell-specific checks |
+| `.github/workflows/lint/powershell.yml` | `psscriptanalyzer-version` (`1.24.0`), `working-directory` (`.`), optional `settings-path` (empty) | Runs PSScriptAnalyzer on PowerShell source and fails on any error or warning diagnostic |
+| `.github/workflows/lint/markdown.yml` | `node-version` (`22.15.0`), `markdownlint-cli2-version` (`0.17.2`), `working-directory` (`.`), `markdown-paths` (`**/*.md`) | Lints newline-separated, non-empty relative globs from the working directory; the default includes nested Markdown. Paths are passed as individual arguments, never evaluated as shell text |
+| `.github/workflows/lint/terraform.yml` | `terraform-version` (`1.11.4`), `working-directory` (`.`) | Runs recursive `terraform fmt -check`, then backend-disabled init with `-lockfile=readonly` and `terraform validate`; init can fetch declared providers/modules |
+| `.github/workflows/lint/helm.yml` | `helm-version` (`3.17.3`), required `chart-path` | Runs `helm lint --strict` on one local chart directory; no cluster access or dependency download/build |
+
+Example calls, with the full SHA from the chosen published catalog commit:
+
+```yaml
+jobs:
+  go-lint:
+    uses: DevOpsDerek/workflows/.github/workflows/lint/go.yml@<40_CHARACTER_COMMIT_SHA>
+    with:
+      go-version: 1.22.12
+      golangci-lint-version: 1.64.8
+      working-directory: .
+
+  markdown-lint:
+    uses: DevOpsDerek/workflows/.github/workflows/lint/markdown.yml@<40_CHARACTER_COMMIT_SHA>
+    with:
+      markdown-paths: |
+        README.md
+        docs/**/*.md
+```
+
+The Go workflow accepts exact golangci-lint 1.x and 2.x releases; keep the
+caller's linter major/config in sync.
+The markdown workflow runs only the supplied globs (or its recursive default),
+so callers can scope checks to their repository's policy without unsafe shell
+arguments.
+
+This catalog revision does not publish SwiftLint, ARM/Bicep semantic
+validation, Kubernetes manifest schema validation, or Markdown link checking.
+SwiftLint needs a separately verified macOS toolchain and binary contract;
+ARM validation needs a schema/deployment contract not established here;
+Kubernetes API schemas are not bundled for offline validation; and link
+checking requires network-dependent targets. The Helm workflow is limited to
+local chart linting and is not a Kubernetes manifest schema validator.

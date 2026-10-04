@@ -239,3 +239,7 @@ jobs:
         run: |
           echo "::error::A working directory outside the checkout was accepted."
           exit 1
+      - name: Test lint workflow path validation behavior
+        run: python3 tests/validate_repository_directory.py
+      - name: Test reusable lint workflow contracts
+        run: python3 tests/lint_workflow_contracts.py

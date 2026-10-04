@@ -1,0 +1,29 @@
+name: Validate repository path
+description: Resolve a repository-relative path and reject traversal or symlink escapes.
+inputs:
+  path:
+    description: Non-empty repository-relative path.
+    required: true
+  name:
+    description: Label used in validation errors.
+    required: false
+    default: Path
+  kind:
+    description: Expected target type, either file or directory.
+    required: false
+    default: directory
+outputs:
+  absolute-path:
+    description: Validated absolute path.
+    value: ${{ steps.validate.outputs.absolute-path }}
+runs:
+  using: composite
+  steps:
+    - id: validate
+      shell: bash
+      env:
+        REPOSITORY_PATH: ${{ inputs.path }}
+        PATH_NAME: ${{ inputs.name }}
+        PATH_KIND: ${{ inputs.kind }}
+        WORKSPACE_ROOT: ${{ github.workspace }}
+      run: python3 "$GITHUB_ACTION_PATH/validate.py"

@@ -1,0 +1,91 @@
+name: Lint PowerShell with PSScriptAnalyzer
+
+on:
+  workflow_call:
+    inputs:
+      psscriptanalyzer-version:
+        description: Exact PSScriptAnalyzer module version.
+        required: false
+        type: string
+        default: 1.24.0
+      working-directory:
+        description: Repository-relative directory containing PowerShell scripts.
+        required: false
+        type: string
+        default: .
+      settings-path:
+        description: Optional repository-relative PSScriptAnalyzer settings file.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate working directory
+        id: target
+        uses: DevOpsDerek/workflows/.github/actions/validate-repository-directory@7f6c8dbd3156bd67db0d05ee2ab501028b16792f
+        with:
+          path: ${{ inputs.working-directory }}
+          name: working-directory
+      - name: Validate settings file
+        id: settings
+        if: inputs.settings-path != ''
+        uses: DevOpsDerek/workflows/.github/actions/validate-repository-directory@7f6c8dbd3156bd67db0d05ee2ab501028b16792f
+        with:
+          path: ${{ inputs.settings-path }}
+          name: settings-path
+          kind: file
+      - name: Validate exact version
+        shell: bash
+        env:
+          MODULE_VERSION: ${{ inputs.psscriptanalyzer-version }}
+        run: |
+          set -euo pipefail
+          [[ "$MODULE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::psscriptanalyzer-version must be an exact three-part version."
+            exit 1
+          }
+      - name: Install pinned PSScriptAnalyzer
+        shell: pwsh
+        env:
+          MODULE_VERSION: ${{ inputs.psscriptanalyzer-version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion $env:MODULE_VERSION -Scope CurrentUser -Force -AllowClobber
+      - name: Analyze PowerShell sources
+        shell: pwsh
+        env:
+          TARGET: ${{ steps.target.outputs.absolute-path }}
+          SETTINGS: ${{ steps.settings.outputs.absolute-path }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          Import-Module PSScriptAnalyzer
+          $scripts = Get-ChildItem -Path $env:TARGET -Recurse -File |
+            Where-Object { $_.Extension -in @(".ps1", ".psm1", ".psd1") } |
+            ForEach-Object { $_.FullName }
+          if (-not $scripts) {
+            throw "No .ps1, .psm1, or .psd1 files found under working-directory."
+          }
+          $parameters = @{
+            Path = $scripts
+            Severity = @("Error", "Warning")
+          }
+          if ($env:SETTINGS) {
+            $parameters.Settings = $env:SETTINGS
+          }
+          $diagnostics = @(Invoke-ScriptAnalyzer @parameters)
+          if ($diagnostics.Count -gt 0) {
+            $diagnostics | Format-Table -AutoSize | Out-String | Write-Output
+            exit 1
+          }

@@ -4,9 +4,12 @@ The central validation workflow is stack-neutral: it lints GitHub Actions
 workflow files and validates the caller's gh-aw Markdown plus generated lock
 files. The `run-checked-script` API is intentionally narrower: one version-
 pinned check for Go, Python, Node.js, .NET, or backend-free Terraform validation.
-It does not replace language-specific lint/test matrices, formatters, scanners,
-artifact handling, or existing required checks. Keep those jobs and check
-names stable while adopting this catalog.
+Language/IaC lint interfaces are separate fixed reusable workflows documented
+in the [catalog](catalog.md). The GitHub Actions and gh-aw validator remains
+authoritative for those sources; the language workflows do not duplicate it.
+None of these workflows replaces repository-specific test matrices, scanners,
+artifact handling, or existing required checks. Keep those jobs and check names
+stable while adopting this catalog.
 
 Consumers should preserve their own tool versions, working directories,
 commands, outputs, artifact names/paths, triggers, platform-specific runners,
@@ -25,6 +28,15 @@ without importing or executing it. It does not replace pytest, Ruff, an OS or
 Python-version matrix, coverage, or artifact-producing checks. The
 `run-checked-script` helper executes caller code and must not be treated as a
 syntax-only alternative.
+
+Language and IaC lint workflows accept only fixed tool/version/path inputs.
+Their policy files remain caller-owned and are loaded by the corresponding
+tool where supported. Python lint also checks formatting without applying
+changes. Go lint supports golangci-lint v1 and v2; callers must select the
+matching configuration format. The shell workflow treats its selected source
+files as Bash. Terraform init uses no backend and a read-only lockfile, but can
+still download declared providers/modules. Helm lint operates only on a local
+chart and does not fetch dependencies or contact a cluster.
 
 Workflow permissions do not replace repository rulesets, branch protection,
 environment protection, or required human approvals. Verify those controls in
@@ -61,14 +73,15 @@ patterns, or use the code-executing `run-checked-script` helper, for that
 repository. Keep live location records and their data files out of any model
 context; this catalog does not provide a location-data agent workflow.
 
-## Kubernetes manifest reporting
+## Deferred static-analysis interfaces
 
-This catalog does not currently provide a Helm, Kustomize, or Kyverno report
-workflow. A future read-only pattern requires a reviewed manifest path
-allowlist, tested report-only commands, and verified tool versions. It must
-not require cluster access, network-dependent inputs, or mutation commands.
-Until those constraints are established, retain each repository's existing
-validation and do not treat this catalog as a Kubernetes-policy fit.
+The Helm lint workflow is not a Kubernetes API-schema validator. No offline
+Kubernetes manifest schema bundle has been established, so Kubernetes
+schema/policy validation remains local to consumers. ARM/Bicep semantic
+validation, SwiftLint on a verified macOS toolchain, and network-dependent
+Markdown link checking are also not provided by this catalog revision. Keep
+those checks in their existing consumer jobs until their exact tool versions,
+input/config contracts, and normal/failure behavior can be tested centrally.
 
 ## Private repositories
 

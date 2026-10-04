@@ -16,7 +16,57 @@ PATTERNS = {
     "test-quality": "test-only change",
     "documentation-upkeep": "documentation-only correction",
 }
-
+LINT_WORKFLOWS = {
+    "python-ruff": {
+        "path": ".github/workflows/lint/python-ruff.yml",
+        "inputs": {
+            "python-version": "3.12.8",
+            "ruff-version": "0.11.13",
+            "working-directory": "src",
+        },
+    },
+    "go": {
+        "path": ".github/workflows/lint/go.yml",
+        "inputs": {
+            "go-version": "1.22.12",
+            "golangci-lint-version": "1.64.8",
+            "working-directory": "src",
+        },
+    },
+    "rust": {
+        "path": ".github/workflows/lint/rust.yml",
+        "inputs": {"rust-version": "1.86.0", "working-directory": "src"},
+    },
+    "shell": {
+        "path": ".github/workflows/lint/shell.yml",
+        "inputs": {"shellcheck-version": "0.10.0", "working-directory": "scripts"},
+    },
+    "powershell": {
+        "path": ".github/workflows/lint/powershell.yml",
+        "inputs": {
+            "psscriptanalyzer-version": "1.24.0",
+            "working-directory": "scripts",
+            "settings-path": ".PSScriptAnalyzerSettings.psd1",
+        },
+    },
+    "markdown": {
+        "path": ".github/workflows/lint/markdown.yml",
+        "inputs": {
+            "node-version": "22.15.0",
+            "markdownlint-cli2-version": "0.17.2",
+            "working-directory": ".",
+            "markdown-paths": "README.md\n      docs/**/*.md",
+        },
+    },
+    "terraform": {
+        "path": ".github/workflows/lint/terraform.yml",
+        "inputs": {"terraform-version": "1.11.4", "working-directory": "infra"},
+    },
+    "helm": {
+        "path": ".github/workflows/lint/helm.yml",
+        "inputs": {"helm-version": "3.17.3", "chart-path": "charts/example"},
+    },
+}
 CALLER_FRONTMATTER = {
     "issue-triage": """on:
   issues:
@@ -136,6 +186,8 @@ def main():
             ".github/workflows/run-checked-script.yml",
             ".github/actions/run-checked-script/action.yml",
             ".github/actions/check-python-syntax/action.yml",
+            ".github/actions/validate-repository-directory/action.yml",
+            *[item["path"] for item in LINT_WORKFLOWS.values()],
         ):
             subprocess.run(
                 [
@@ -409,6 +461,31 @@ jobs:
 """,
             encoding="utf-8",
         )
+        for name, contract in LINT_WORKFLOWS.items():
+            input_lines = []
+            for key, value in contract["inputs"].items():
+                if "\n" in value:
+                    input_lines.append(f"      {key}: |")
+                    input_lines.extend(
+                        f"        {line}" for line in value.splitlines()
+                    )
+                else:
+                    input_lines.append(f"      {key}: {value}")
+            inputs = "\n".join(input_lines)
+            (caller_dir / f"lint-{name}.yml").write_text(
+                f"""name: {name} lint contract
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  lint:
+    uses: DevOpsDerek/workflows/{contract["path"]}@{args.catalog_ref}
+    with:
+{inputs}
+""",
+                encoding="utf-8",
+            )
         subprocess.run(
             [
                 "go",
@@ -418,6 +495,10 @@ jobs:
                 str(caller_dir / "reusable-workflow.yml"),
                 str(caller_dir / "composite-action.yml"),
                 str(caller_dir / "python-syntax-action.yml"),
+                *[
+                    str(caller_dir / f"lint-{name}.yml")
+                    for name in LINT_WORKFLOWS
+                ],
             ],
             check=True,
         )

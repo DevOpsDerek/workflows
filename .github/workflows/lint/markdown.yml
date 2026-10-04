@@ -1,0 +1,95 @@
+name: Lint Markdown
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Exact Node.js version.
+        required: false
+        type: string
+        default: 22.15.0
+      markdownlint-cli2-version:
+        description: Exact markdownlint-cli2 version.
+        required: false
+        type: string
+        default: 0.17.2
+      working-directory:
+        description: Repository-relative directory containing Markdown files.
+        required: false
+        type: string
+        default: .
+      markdown-paths:
+        description: Newline-separated Markdown globs relative to working-directory, not shell text.
+        required: false
+        type: string
+        default: "**/*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: markdownlint-cli2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate working directory
+        id: target
+        uses: DevOpsDerek/workflows/.github/actions/validate-repository-directory@7f6c8dbd3156bd67db0d05ee2ab501028b16792f
+        with:
+          path: ${{ inputs.working-directory }}
+          name: working-directory
+      - name: Validate exact versions
+        shell: bash
+        env:
+          NODE_VERSION: ${{ inputs.node-version }}
+          LINTER_VERSION: ${{ inputs.markdownlint-cli2-version }}
+        run: |
+          set -euo pipefail
+          [[ "$NODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::node-version must be an exact three-part version."
+            exit 1
+          }
+          [[ "$LINTER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::markdownlint-cli2-version must be an exact three-part version."
+            exit 1
+          }
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ inputs.node-version }}
+          check-latest: false
+      - name: Install pinned markdownlint-cli2
+        shell: bash
+        env:
+          LINTER_VERSION: ${{ inputs.markdownlint-cli2-version }}
+        run: npm install --global --ignore-scripts --no-audit --no-fund "markdownlint-cli2@$LINTER_VERSION"
+      - name: Lint Markdown
+        working-directory: ${{ steps.target.outputs.absolute-path }}
+        shell: bash
+        env:
+          MARKDOWN_PATHS: ${{ inputs.markdown-paths }}
+        run: |
+          set -euo pipefail
+          mapfile -t patterns <<< "$MARKDOWN_PATHS"
+          args=()
+          for pattern in "${patterns[@]}"; do
+            case "$pattern" in
+              ""|/*|*\\*|*$'\r'*)
+                echo "::error::markdown-paths entries must be non-empty repository-relative globs using '/' separators."
+                exit 1
+                ;;
+            esac
+            case "/$pattern/" in
+              *"/../"*)
+                echo "::error::markdown-paths entries must not contain parent-directory components."
+                exit 1
+                ;;
+            esac
+            args+=("$pattern")
+          done
+          markdownlint-cli2 "${args[@]}"

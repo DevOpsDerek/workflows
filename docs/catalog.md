@@ -376,7 +376,8 @@ Globs support `*` and `?` (within one path segment) and `**` (any number of
 directories). Absolute paths, `..` components, backslashes, and control
 characters are rejected; `.git` is never scanned; matching nothing is an
 error. Inline links, images, reference definitions, `<https://...>` autolinks,
-and HTML `href`/`src` attributes are checked. Links in fenced code blocks,
+and double-quoted, single-quoted, or unquoted `href`/`src` attributes on
+`<a>` and `<img>` tags are checked. Links in fenced code blocks,
 inline code spans, HTML comments, and backslash-escaped brackets are ignored.
 
 Local links are checked deterministically without network access: query
@@ -440,7 +441,10 @@ on third-party availability.
 Limitations: heading anchors/fragments are not validated; reference-style
 link usages are checked through their definitions; links inside indented code
 blocks, block-quoted or list-nested fences, and bare (non-angle-bracket) URLs
-follow simple parsing rules and may be checked or missed; protocol-relative
+follow simple parsing rules and may be checked or missed; HTML is matched by
+pattern rather than a full HTML parser, so only `href`/`src` on `<a>`/`<img>`
+are read (not `srcset` or other elements) and HTML character entities such as
+`&amp;` are not decoded; local targets are percent-decoded once; protocol-relative
 `//host` links and non-HTTP schemes are skipped; external results reflect the
 runner's network at that moment, and some sites block automated requests
 (reported as unverified rather than broken). No consumer repository is

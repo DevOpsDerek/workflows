@@ -175,6 +175,7 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
             "[ref]: ./guide.md \"Guide\"",
             "[^1]: Footnote text, not a link",
             '<a href="../README.md">readme</a> <img src="images/diagram%20one.png">',
+            "<a class=x href=../README.md>readme</a> <IMG SRC=images/diagram%20one.png alt=d>",
             "[mail](mailto:someone@example.com)",
             "",
         ]))
@@ -192,6 +193,7 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
             "[empty]()",
             "[ref]: nowhere/file.md",
             '<a href="gone.md">gone</a>',
+            "<a href=unquoted-gone.md>gone</a> <img alt='x' src='single-gone.png'>",
             "",
         ]))
         result = self.run_check()
@@ -205,8 +207,10 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
             "::error file=docs/broken.md,line=6::Broken local link '': empty link target",
             "::error file=docs/broken.md,line=7::Broken local link 'nowhere/file.md': target path does not exist (paths are case-sensitive)",
             "::error file=docs/broken.md,line=8::Broken local link 'gone.md': target path does not exist (paths are case-sensitive)",
+            "::error file=docs/broken.md,line=9::Broken local link 'single-gone.png': target path does not exist (paths are case-sensitive)",
+            "::error file=docs/broken.md,line=9::Broken local link 'unquoted-gone.md': target path does not exist (paths are case-sensitive)",
         ])
-        self.assertIn("broken=7", result.stdout)
+        self.assertIn("broken=9", result.stdout)
 
     def test_symlink_parent_traversal_cannot_escape(self):
         outside = self.root / "outside"
@@ -308,13 +312,35 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
         self.assertEqual(Handler.counts["/missing"], 2)
         self.assertNotIn("/ok", Handler.counts)
 
+    def test_symlink_loops_fail_deterministically(self):
+        (self.workspace / "loop-a").symlink_to(self.workspace / "loop-b")
+        (self.workspace / "loop-b").symlink_to(self.workspace / "loop-a")
+        (self.workspace / "self").symlink_to(self.workspace / "self")
+        self.write("loops.md", "[a](loop-a)\n[nested](self/file.md)\n[fine](README.md)\n")
+        result = self.run_check(block_network=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        for line, target in ((1, "loop-a"), (2, "self/file.md")):
+            self.assertIn(
+                f"::error file=loops.md,line={line}::Broken local link '{target}': "
+                "target cannot be resolved (symlink loop or unreadable path)",
+                result.stdout,
+            )
+        self.assertIn("broken=2", result.stdout)
+        (self.workspace / "cycle.md").symlink_to(self.workspace / "cycle.md")
+        result = self.run_check(block_network=True)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("::error::Markdown file cannot be resolved (broken link or symlink loop): cycle.md", result.stdout)
+
     def test_invalid_external_urls_fail_in_network_free_mode(self):
         self.write("external.md", "[bad](https://)\n[nohost](http:///path)\n[ipv6](http://[::1/x)\n"
-                   "[creds](https://user:secret@example.invalid/x)\n[fine](https://example.invalid/ok)\n")
+                   "[creds](https://user:secret@example.invalid/x)\n[port](https://example.invalid:bad/x)\n"
+                   "[range](https://example.invalid:70000/x)\n[fine](https://example.invalid/ok)\n")
         result = self.run_check(block_network=True)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         errors = [line for line in result.stdout.splitlines() if line.startswith("::error")]
-        self.assertEqual([line.split("::", 2)[1] for line in errors], [f"error file=external.md,line={n}" for n in (1, 2, 3, 4)])
+        self.assertEqual([line.split("::", 2)[1] for line in errors], [f"error file=external.md,line={n}" for n in (1, 2, 3, 4, 5, 6)])
         self.assertIn("'https://***@example.invalid/x': confirmed invalid URL: embedded credentials are not allowed", result.stdout)
         self.assertNotIn("secret", result.stdout + result.stderr)
         self.assertNotIn("network access attempted", result.stdout + result.stderr)

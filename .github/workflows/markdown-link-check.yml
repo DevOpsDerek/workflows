@@ -126,7 +126,7 @@ jobs:
           REFERENCE = re.compile(r"^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^<>\n]*>|\S+)", re.MULTILINE)
           AUTOLINK = re.compile(r"<(https?://[^<>\s]+)>", re.IGNORECASE)
           HTML = re.compile(
-              r"<(?:a|img)\b[^>]*?\s(?:href|src)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')", re.IGNORECASE
+              r"<(?:a|img)\b[^>]*?\s(?:href|src)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'=<>`]+))", re.IGNORECASE
           )
           FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
@@ -237,7 +237,10 @@ jobs:
                           continue
                       if any(pattern.match(relative) for pattern in settings["exclude"]):
                           continue
-                      resolved = path.resolve()
+                      try:
+                          resolved = path.resolve(strict=True)
+                      except (OSError, RuntimeError):
+                          raise InputError(f"Markdown file cannot be resolved (broken link or symlink loop): {relative}") from None
                       if not resolved.is_relative_to(workspace) or not resolved.is_file():
                           raise InputError(f"Markdown file must resolve to a file inside the checkout: {relative}")
                       found.append(path)
@@ -309,12 +312,17 @@ jobs:
               base = workspace if path_text.startswith("/") else source.parent
               raw = base / path_text.lstrip("/")
               candidate = pathlib.Path(os.path.normpath(raw))
-              if (
-                  not candidate.is_relative_to(workspace)
-                  or not candidate.resolve().is_relative_to(workspace)
-                  or not raw.resolve().is_relative_to(workspace)
-              ):
+              if not candidate.is_relative_to(workspace):
                   return "target escapes the repository"
+              unresolvable = "target cannot be resolved (symlink loop or unreadable path)"
+              try:
+                  if not candidate.resolve().is_relative_to(workspace) or not raw.resolve().is_relative_to(workspace):
+                      return "target escapes the repository"
+                  raw.resolve(strict=True)
+              except FileNotFoundError:
+                  pass
+              except (OSError, RuntimeError):
+                  return unresolvable
               if not exact_case_exists(candidate) or not raw.exists():
                   return "target path does not exist (paths are case-sensitive)"
               return None
@@ -360,6 +368,10 @@ jobs:
                   return "invalid URL: embedded credentials are not allowed"
               if not hostname:
                   return "invalid URL: missing host"
+              try:
+                  parsed.port
+              except ValueError as error:
+                  return f"invalid URL: {error}"
               return None
 
 

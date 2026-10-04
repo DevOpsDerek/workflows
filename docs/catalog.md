@@ -337,10 +337,118 @@ The markdown workflow runs only the supplied globs (or its recursive default),
 so callers can scope checks to their repository's policy without unsafe shell
 arguments.
 
-This catalog revision does not publish SwiftLint, ARM/Bicep semantic
-validation, Kubernetes manifest schema validation, or Markdown link checking.
-SwiftLint needs a separately verified macOS toolchain and binary contract;
-ARM validation needs a schema/deployment contract not established here;
-Kubernetes API schemas are not bundled for offline validation; and link
-checking requires network-dependent targets. The Helm workflow is limited to
-local chart linting and is not a Kubernetes manifest schema validator.
+This lint family does not include SwiftLint (see the separate macOS workflow
+above), ARM/Bicep semantic validation, Kubernetes manifest schema validation,
+or Markdown link checking (see the separate link-check workflow below).
+ARM validation needs a schema/deployment contract not established here, and
+Kubernetes API schemas are not bundled for offline validation. The Helm
+workflow is limited to local chart linting and is not a Kubernetes manifest
+schema validator.
+
+## Check Markdown links
+
+Path: `.github/workflows/markdown-link-check.yml` (a top-level reusable
+workflow, separate from `lint-markdown.yml`, whose API is unchanged).
+
+| Input | Type | Default / contract |
+| --- | --- | --- |
+| `python-version` | string | `3.12.8`; exact three-part version, 3.9.0 or newer, for the bundled checker, verified at run time |
+| `working-directory` | string | `.`; repository-relative directory without traversal, `.git`, or symlinks |
+| `markdown-paths` | string | `**/*.md`; newline-separated globs relative to `working-directory` |
+| `exclude-paths` | string | Empty; newline-separated globs of Markdown files to skip |
+| `exclude-links` | string | Empty; newline-separated literal link-target prefixes to skip |
+| `external-links` | string | `skip` (network-free) or `check` |
+| `timeout-seconds` | number | `10`; per-request timeout, 1-60 |
+| `max-retries` | number | `2`; retries for transient external failures, 0-5 |
+| `fail-on-unconfirmed` | boolean | `false`; fail instead of warn on transient/unverified external results |
+
+The checker is a Python standard-library script embedded in the workflow, so
+the checker revision is pinned by the catalog SHA and the runtime by
+`python-version` (installed through a SHA-pinned `actions/setup-python` with
+`check-latest: false`). It installs no packages, does not use a local action
+from the caller, and accepts no secrets or shell text. Inputs are passed as
+environment data and validated before any file is read. The workflow checks
+out the caller with persisted credentials disabled, grants only
+`contents: read`, and never edits files, auto-fixes links, comments, or opens
+pull requests.
+
+Globs support `*` and `?` (within one path segment) and `**` (any number of
+directories). Absolute paths, `..` components, backslashes, and control
+characters are rejected; `.git` is never scanned; matching nothing is an
+error. Inline links, images, reference definitions, `<https://...>` autolinks,
+and double-quoted, single-quoted, or unquoted `href`/`src` attributes on
+`<a>` and `<img>` tags are checked. Links in fenced code blocks,
+inline code spans, HTML comments, and backslash-escaped brackets are ignored.
+
+Local links are checked deterministically without network access: query
+strings and fragments are removed, percent-encoding is decoded, `/`-prefixed
+targets resolve from the repository root, and other targets resolve from the
+containing file. A target must exist with exact path case (as on GitHub) and
+remain inside the checkout; empty targets fail. Same-document `#fragment`
+links and non-HTTP schemes such as `mailto:` are skipped.
+
+External `http(s)` links are only contacted when `external-links: check`.
+In both modes, malformed URLs (including whitespace, control characters, or
+invalid ports), URLs without a host, and URLs with embedded
+`user:password@` credentials are rejected offline as confirmed broken and are
+never requested; credentials are redacted as `***@` in annotations.
+Each unique URL (fragment removed) is requested once with `GET`, a fixed
+User-Agent, no credentials or cookies, followed redirects, and the per-request
+timeout. Results are classified as:
+
+| Result | Causes | Retried | Outcome |
+| --- | --- | --- | --- |
+| OK | 2xx after redirects | - | Pass |
+| Broken (confirmed) | HTTP 404 or 410; malformed, host-less, or credential-bearing URL (validated offline, never requested) | No | Error; always fails |
+| Transient | Timeout, DNS/connection error, HTTP 408, 425, 429, or 5xx | Up to `max-retries`, backoff 1s, 2s, 4s | Warning, or error when `fail-on-unconfirmed: true` |
+| Unverified | Other statuses (for example 401/403), TLS verification failure | No | Warning, or error when `fail-on-unconfirmed: true` |
+
+Exit status 1 means at least one confirmed broken link (local or external),
+2 means invalid input or configuration, and 3 means only transient/unverified
+external results with `fail-on-unconfirmed: true`. Annotations include the
+repository-relative file and line. External checks use up to eight concurrent
+requests and stop starting new probes after a ten-minute budget (remaining
+URLs are reported as transient); the job times out after 20 minutes.
+
+Example caller (replace the placeholder with the full SHA of the published
+catalog commit you adopt; do not use a branch or tag):
+
+```yaml
+name: Markdown links
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  markdown-links:
+    uses: DevOpsDerek/workflows/.github/workflows/markdown-link-check.yml@<40_CHARACTER_COMMIT_SHA>
+    with:
+      markdown-paths: |
+        README.md
+        docs/**/*.md
+      exclude-paths: |
+        docs/generated/**
+      exclude-links: |
+        https://internal.example.com/
+      external-links: skip
+```
+
+Use `external-links: check` in a separate scheduled or non-required job if
+external reachability should be reported without making pull requests depend
+on third-party availability.
+
+Limitations: heading anchors/fragments are not validated; reference-style
+link usages are checked through their definitions; links inside indented code
+blocks, block-quoted or list-nested fences, and bare (non-angle-bracket) URLs
+follow simple parsing rules and may be checked or missed; HTML is matched by
+pattern rather than a full HTML parser, so only `href`/`src` on `<a>`/`<img>`
+are read (not `srcset` or other elements) and HTML character entities such as
+`&amp;` are not decoded; local targets are percent-decoded once; protocol-relative
+`//host` links and non-HTTP schemes are skipped; external results reflect the
+runner's network at that moment, and some sites block automated requests
+(reported as unverified rather than broken). No consumer repository is
+changed by publishing this workflow. Contract tests run the embedded checker
+against isolated fixtures and a local HTTP server:
+`python3 tests/markdown_link_check_contracts.py`.

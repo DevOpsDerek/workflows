@@ -306,10 +306,15 @@ jobs:
                   return "invalid local path"
               workspace = settings["workspace"]
               base = workspace if path_text.startswith("/") else source.parent
-              candidate = pathlib.Path(os.path.normpath(base / path_text.lstrip("/")))
-              if not candidate.is_relative_to(workspace) or not candidate.resolve().is_relative_to(workspace):
+              raw = base / path_text.lstrip("/")
+              candidate = pathlib.Path(os.path.normpath(raw))
+              if (
+                  not candidate.is_relative_to(workspace)
+                  or not candidate.resolve().is_relative_to(workspace)
+                  or not raw.resolve().is_relative_to(workspace)
+              ):
                   return "target escapes the repository"
-              if not exact_case_exists(candidate):
+              if not exact_case_exists(candidate) or not raw.exists():
                   return "target path does not exist (paths are case-sensitive)"
               return None
 

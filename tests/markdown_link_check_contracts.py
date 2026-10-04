@@ -208,6 +208,18 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
         ])
         self.assertIn("broken=7", result.stdout)
 
+    def test_symlink_parent_traversal_cannot_escape(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "secret.md").write_text("# secret\n", encoding="utf-8")
+        (self.workspace / "dir-link").symlink_to(outside, target_is_directory=True)
+        self.write("secret.md", "# decoy so the normalized path exists\n")
+        self.write("escape.md", "[raw](dir-link/../secret.md)\n[ok](secret.md)\n")
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error file=escape.md,line=1::Broken local link 'dir-link/../secret.md': target escapes the repository", result.stdout)
+        self.assertIn("broken=1", result.stdout)
+
     def test_code_comments_and_escapes_are_ignored(self):
         self.write("code.md", "\n".join([
             "```markdown", "[missing](missing.md)", "```",

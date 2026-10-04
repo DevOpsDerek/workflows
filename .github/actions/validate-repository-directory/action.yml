@@ -2,7 +2,7 @@ name: Validate repository path
 description: Resolve a repository-relative path and reject traversal or symlink escapes.
 inputs:
   path:
-    description: Non-empty repository-relative directory path.
+    description: Non-empty repository-relative path.
     required: true
   name:
     description: Label used in validation errors.
@@ -14,7 +14,7 @@ inputs:
     default: directory
 outputs:
   absolute-path:
-    description: Validated absolute directory path.
+    description: Validated absolute path.
     value: ${{ steps.validate.outputs.absolute-path }}
 runs:
   using: composite
@@ -25,45 +25,5 @@ runs:
         REPOSITORY_PATH: ${{ inputs.path }}
         PATH_NAME: ${{ inputs.name }}
         PATH_KIND: ${{ inputs.kind }}
-        GITHUB_WORKSPACE: ${{ github.workspace }}
-      run: |
-        set -euo pipefail
-        workspace="$(cd -- "$GITHUB_WORKSPACE" && pwd -P)"
-        case "$PATH_KIND" in
-          file|directory) ;;
-          *)
-            echo "::error::Path kind must be 'file' or 'directory'."
-            exit 1
-            ;;
-        esac
-        case "$REPOSITORY_PATH" in
-          ""|/*|*$'\n'*)
-            echo "::error::$PATH_NAME must be a non-empty repository-relative path."
-            exit 1
-            ;;
-        esac
-        case "/$REPOSITORY_PATH/" in
-          *"/../"*)
-            echo "::error::$PATH_NAME must not contain parent-directory components."
-            exit 1
-            ;;
-        esac
-        if ! resolved="$(realpath -- "$workspace/$REPOSITORY_PATH")"; then
-          echo "::error::$PATH_NAME does not exist."
-          exit 1
-        fi
-        case "$resolved/" in
-          "$workspace/"*) ;;
-          *)
-            echo "::error::$PATH_NAME must resolve inside the checked-out repository."
-            exit 1
-            ;;
-        esac
-        if [[ "$PATH_KIND" == file && ! -f "$resolved" ]]; then
-          echo "::error::$PATH_NAME must be a file."
-          exit 1
-        elif [[ "$PATH_KIND" == directory && ! -d "$resolved" ]]; then
-          echo "::error::$PATH_NAME must be a directory."
-          exit 1
-        fi
-        printf 'absolute-path=%s\n' "$resolved" >> "$GITHUB_OUTPUT"
+        WORKSPACE_ROOT: ${{ github.workspace }}
+      run: bash "$GITHUB_ACTION_PATH/validate.sh"

@@ -23,6 +23,10 @@ runs:
         WORKFLOWS_DIRECTORY: ${{ inputs.workflows-directory }}
       run: |
         set -euo pipefail
+        [[ -d "$WORKFLOWS_DIRECTORY" ]] || {
+          echo "::error::Workflow directory '$WORKFLOWS_DIRECTORY' does not exist."
+          exit 1
+        }
         if ! find "$WORKFLOWS_DIRECTORY" -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
           echo "No local gh-aw workflow sources found; skipping compilation."
           exit 0

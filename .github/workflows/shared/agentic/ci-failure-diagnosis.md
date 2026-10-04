@@ -1,10 +1,19 @@
+---
 safe-outputs:
+  report-failed-jobs: false
+  report-failure-as-issue: false
+  missing-tool:
+    create-issue: false
+  missing-data:
+    create-issue: false
+  report-incomplete:
+    create-issue: false
+  noop:
+    report-as-issue: false
   create-issue:
     max: 1
     title-prefix: "[CI diagnosis] "
-    labels:
-      - automation
-      - ci-diagnosis
+---
 
 Investigate only the completed workflow run that triggered this workflow.
 Inspect the failing job's available logs, identify the first actionable failure,

@@ -9,9 +9,12 @@ adopting a newer catalog revision.
 
 Path: `.github/workflows/validate-agentic-workflows.yml`
 
-This reusable workflow lints the caller's GitHub Actions YAML, installs the
-specified gh-aw CLI release, validates and compiles the caller's gh-aw Markdown
-sources, and fails if compilation changes or creates lock files. Its
+This reusable workflow lints the caller's non-gh-aw GitHub Actions YAML,
+excluding generated `*.lock.yml` files from stock actionlint. It installs the
+specified gh-aw CLI release, whose compiler runs its compatibility-aware
+actionlint validation on generated lock files, validates and compiles the
+caller's gh-aw Markdown sources, and fails if compilation changes or creates
+lock files. Its
 `workflow_call` inputs are:
 
 | Input | Type | Default | Purpose |
@@ -89,8 +92,8 @@ catalog SHA:
 | --- | --- |
 | `.github/workflows/shared/agentic/issue-triage.md` | Evidence-based issue triage proposal via one safe-output comment |
 | `.github/workflows/shared/agentic/ci-failure-diagnosis.md` | Bounded failed-run diagnosis via one safe-output issue |
-| `.github/workflows/shared/agentic/test-quality.md` | One test-only change as a draft PR for human review |
-| `.github/workflows/shared/agentic/documentation-upkeep.md` | One documentation-only correction as a draft PR for human review |
+| `.github/workflows/shared/agentic/test-quality.md` | One draft PR limited by `allowed-files` to common test directories and test-named files |
+| `.github/workflows/shared/agentic/documentation-upkeep.md` | One draft PR limited by `allowed-files` to root README/CONTRIBUTING/CHANGELOG and Markdown under `docs/` or `doc/` |
 
 Examples and required local source/lock behavior are in
 [Agentic patterns](agentic-patterns.md). The gh-aw compiler resolves remote
@@ -180,3 +183,37 @@ Script paths are passed as environment data and invoked as arguments; these
 interfaces do not accept or `eval` caller-provided shell command text. Checks
 still execute code from the caller checkout, so keep credentials out of the
 job and preserve the repository's existing fork/untrusted-PR policy.
+
+## Check Python syntax without executing code
+
+Path: `.github/actions/check-python-syntax/action.yml`
+
+Use this composite action only for non-executing Python syntax validation. It
+installs an exact three-part Python version and parses one explicitly named,
+repository-relative `.py` file into an AST. It does not import or execute the
+file, install project dependencies, run tests or linters, measure coverage, or
+scan directories. Call the action once per file that should be checked. The
+helper rejects absolute/traversing paths, symlinks, and files outside the
+checkout. Check out the caller repository first and grant only
+`contents: read`.
+
+```yaml
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@<PINNED_ACTIONS_CHECKOUT_SHA>
+      - uses: DevOpsDerek/workflows/.github/actions/check-python-syntax@<40_CHARACTER_COMMIT_SHA>
+        with:
+          python-version: 3.12.8
+          source-path: src/example.py
+      - uses: DevOpsDerek/workflows/.github/actions/check-python-syntax@<40_CHARACTER_COMMIT_SHA>
+        with:
+          python-version: 3.12.8
+          source-path: tests/test_example.py
+```
+
+This is a syntax-only complement, not a replacement for a repository's pytest,
+Ruff, OS/Python-version matrix, coverage, or artifact-producing checks.

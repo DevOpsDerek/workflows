@@ -20,6 +20,12 @@ runner, command, output, or artifact behavior differs. Grant write permissions
 only to the narrowly scoped publishing job, if any; never pass publishing
 credentials to agentic workflows.
 
+The Python syntax-only composite action parses one explicitly named `.py` file
+without importing or executing it. It does not replace pytest, Ruff, an OS or
+Python-version matrix, coverage, or artifact-producing checks. The
+`run-checked-script` helper executes caller code and must not be treated as a
+syntax-only alternative.
+
 Workflow permissions do not replace repository rulesets, branch protection,
 environment protection, or required human approvals. Verify those controls in
 each target repository's settings; do not infer that they exist from workflow
@@ -48,6 +54,21 @@ data files that reveal location history. Before adding a consumer workflow:
 If a safe allowlist cannot be established, do not enable the agentic workflow.
 This precaution is specific to location-bearing data and should be applied
 before choosing any general-purpose pattern.
+
+For `where-is-dad`, the central static validation workflow is the appropriate
+catalog fit. Do not enable the shared documentation-upkeep or other agentic
+patterns, or use the code-executing `run-checked-script` helper, for that
+repository. Keep live location records and their data files out of any model
+context; this catalog does not provide a location-data agent workflow.
+
+## Kubernetes manifest reporting
+
+This catalog does not currently provide a Helm, Kustomize, or Kyverno report
+workflow. A future read-only pattern requires a reviewed manifest path
+allowlist, tested report-only commands, and verified tool versions. It must
+not require cluster access, network-dependent inputs, or mutation commands.
+Until those constraints are established, retain each repository's existing
+validation and do not treat this catalog as a Kubernetes-policy fit.
 
 ## Private repositories
 

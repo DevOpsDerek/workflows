@@ -34,30 +34,30 @@ runs:
         fi
     - name: Set up Go
       if: inputs.runtime == 'go'
-      uses: actions/setup-go@b75000b53e9ce4de2b4712237bbdb711bdc92aba
+      uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
       with:
         go-version: ${{ inputs.version }}
         check-latest: false
     - name: Set up Python
       if: inputs.runtime == 'python'
-      uses: actions/setup-python@06da6279cdbca41027908073e81a4544dc79c06b
+      uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
       with:
         python-version: ${{ inputs.version }}
         check-latest: false
     - name: Set up Node.js
       if: inputs.runtime == 'node'
-      uses: actions/setup-node@e2cf7c663b93c38144629f5d40b62d3eaaa63a03
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version: ${{ inputs.version }}
         check-latest: false
     - name: Set up .NET
       if: inputs.runtime == 'dotnet'
-      uses: actions/setup-dotnet@54337e0d02de9202d0948aaff36ad556375497b9
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
       with:
         dotnet-version: ${{ inputs.version }}
     - name: Set up Terraform
       if: inputs.runtime == 'terraform'
-      uses: hashicorp/setup-terraform@90ad2b35f69faf97585ad74d28fa006d2739b7af
+      uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
       with:
         terraform_version: ${{ inputs.version }}
         terraform_wrapper: false
@@ -117,7 +117,7 @@ runs:
         set -euo pipefail
         cd -- "$WORKING_DIRECTORY"
         cd -- "$TARGET"
-        go test ./...
+        go test .
     - name: Run Python script
       if: inputs.runtime == 'python'
       shell: bash

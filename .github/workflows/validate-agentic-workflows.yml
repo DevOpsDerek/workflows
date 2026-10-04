@@ -1,0 +1,137 @@
+name: Validate GitHub automation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_call:
+    inputs:
+      gh-aw-version:
+        description: Exact gh-aw release tag to use for compilation.
+        required: false
+        type: string
+        default: v0.89.21
+      workflows-directory:
+        description: Directory containing gh-aw Markdown sources and lock files.
+        required: false
+        type: string
+        default: .github/workflows
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Actions and gh-aw sources
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Lint GitHub Actions workflows
+        uses: reviewdog/action-actionlint@2b6687f7f9d077738045bb954efe4ab43fbf7a16
+        with:
+          reporter: local
+          fail_level: error
+      - name: Install pinned gh-aw CLI
+        uses: github/gh-aw/actions/setup-cli@44af92291c2e544760940d3bfb8fcc37506c161e
+        with:
+          version: ${{ inputs.gh-aw-version || 'v0.89.21' }}
+      - name: Test SHA-pinned remote imports and inlined locks
+        if: github.repository == 'DevOpsDerek/workflows' && github.event_name != 'workflow_call'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CATALOG_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 tests/catalog_imports.py --catalog-ref "$CATALOG_SHA"
+      - name: Compile and validate agentic workflows
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOWS_DIRECTORY: ${{ inputs.workflows-directory || '.github/workflows' }}
+        run: |
+          set -euo pipefail
+          if ! find "$WORKFLOWS_DIRECTORY" -maxdepth 1 -type f -name '*.md' -print -quit | grep -q .; then
+            echo "No local gh-aw workflow sources found; skipping compilation."
+            exit 0
+          fi
+
+          gh aw compile --validate --actionlint --no-check-update --dir "$WORKFLOWS_DIRECTORY"
+
+          if [[ -n "$(git status --porcelain -- "$WORKFLOWS_DIRECTORY")" ]]; then
+            echo "::error::gh-aw lock files are missing or out of date. Run 'gh aw compile --dir $WORKFLOWS_DIRECTORY' and commit the generated files."
+            git status --short -- "$WORKFLOWS_DIRECTORY"
+            exit 1
+          fi
+
+  script-action-contract:
+    name: Test checked-script action input validation
+    if: github.repository == 'DevOpsDerek/workflows' && github.event_name != 'workflow_call'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Run Python fixture
+        uses: ./.github/actions/run-checked-script
+        with:
+          runtime: python
+          version: 3.12.8
+          script-path: tests/fixtures/python/smoke.py
+      - name: Reject unsupported runtime
+        id: unsupported
+        continue-on-error: true
+        uses: ./.github/actions/run-checked-script
+        with:
+          runtime: shell
+          version: 1.2.3
+          script-path: tests/fixtures/python/smoke.py
+      - name: Assert unsupported runtime was rejected
+        if: steps.unsupported.outcome != 'failure'
+        run: |
+          echo "::error::An unsupported runtime was accepted."
+          exit 1
+      - name: Reject a non-exact version
+        id: version
+        continue-on-error: true
+        uses: ./.github/actions/run-checked-script
+        with:
+          runtime: python
+          version: 3.12
+          script-path: tests/fixtures/python/smoke.py
+      - name: Assert non-exact version was rejected
+        if: steps.version.outcome != 'failure'
+        run: |
+          echo "::error::A non-exact runtime version was accepted."
+          exit 1
+      - name: Reject path traversal
+        id: traversal
+        continue-on-error: true
+        uses: ./.github/actions/run-checked-script
+        with:
+          runtime: python
+          version: 3.12.8
+          script-path: ../README.md
+      - name: Assert path traversal was rejected
+        if: steps.traversal.outcome != 'failure'
+        run: |
+          echo "::error::A path outside the caller workspace was accepted."
+          exit 1
+      - name: Create a symlink to a file outside the working directory
+        run: ln -s "$GITHUB_WORKSPACE/README.md" tests/fixtures/python/outside.py
+      - name: Reject symlink escape
+        id: symlink
+        continue-on-error: true
+        uses: ./.github/actions/run-checked-script
+        with:
+          runtime: python
+          version: 3.12.8
+          working-directory: tests/fixtures/python
+          script-path: outside.py
+      - name: Assert symlink escape was rejected
+        if: steps.symlink.outcome != 'failure'
+        run: |
+          echo "::error::A symlink outside the working directory was accepted."
+          exit 1

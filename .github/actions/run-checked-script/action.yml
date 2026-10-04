@@ -1,0 +1,139 @@
+name: Run a version-pinned check
+description: Set up an allowlisted toolchain and run a repository script without evaluating caller-provided shell text.
+inputs:
+  runtime:
+    description: One of go, python, node, dotnet, or terraform.
+    required: true
+  version:
+    description: Exact three-part tool or SDK version, for example 1.22.12.
+    required: true
+  working-directory:
+    description: Repository-relative working directory.
+    required: false
+    default: .
+  script-path:
+    description: Repository-relative Go package directory, script file, project file, or Terraform root.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Validate runtime and exact version
+      shell: bash
+      env:
+        RUNTIME: ${{ inputs.runtime }}
+        TOOL_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$RUNTIME" in
+          go|python|node|dotnet|terraform) ;;
+          *) echo "::error::Unsupported runtime '$RUNTIME'." ; exit 1 ;;
+        esac
+        if [[ ! "$TOOL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Version must be an exact three-part version (for example, 1.22.12)."
+          exit 1
+        fi
+    - name: Set up Go
+      if: inputs.runtime == 'go'
+      uses: actions/setup-go@b75000b53e9ce4de2b4712237bbdb711bdc92aba
+      with:
+        go-version: ${{ inputs.version }}
+        check-latest: false
+    - name: Set up Python
+      if: inputs.runtime == 'python'
+      uses: actions/setup-python@06da6279cdbca41027908073e81a4544dc79c06b
+      with:
+        python-version: ${{ inputs.version }}
+        check-latest: false
+    - name: Set up Node.js
+      if: inputs.runtime == 'node'
+      uses: actions/setup-node@e2cf7c663b93c38144629f5d40b62d3eaaa63a03
+      with:
+        node-version: ${{ inputs.version }}
+        check-latest: false
+    - name: Set up .NET
+      if: inputs.runtime == 'dotnet'
+      uses: actions/setup-dotnet@54337e0d02de9202d0948aaff36ad556375497b9
+      with:
+        dotnet-version: ${{ inputs.version }}
+    - name: Set up Terraform
+      if: inputs.runtime == 'terraform'
+      uses: hashicorp/setup-terraform@90ad2b35f69faf97585ad74d28fa006d2739b7af
+      with:
+        terraform_version: ${{ inputs.version }}
+        terraform_wrapper: false
+    - name: Validate working and script paths
+      id: paths
+      shell: bash
+      env:
+        RUNTIME: ${{ inputs.runtime }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        SCRIPT_PATH: ${{ inputs.script-path }}
+      run: |
+        set -euo pipefail
+        workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+        cd "$GITHUB_WORKSPACE"
+        cd -- "$WORKING_DIRECTORY"
+        working_dir="$(pwd -P)"
+        case "$working_dir/" in
+          "$workspace/"*) ;;
+          *) echo "::error::Working directory must remain inside the checked-out repository." ; exit 1 ;;
+        esac
+        case "/$SCRIPT_PATH/" in
+          *"/../"*) echo "::error::Script path must not contain parent-directory components." ; exit 1 ;;
+        esac
+        case "$SCRIPT_PATH" in
+          /*|"") echo "::error::Script path must be a non-empty repository-relative path." ; exit 1 ;;
+        esac
+        target="$(realpath -- "$SCRIPT_PATH")"
+        case "$target" in
+          "$working_dir"/*) ;;
+          "$working_dir")
+            [[ "$RUNTIME" == terraform || "$RUNTIME" == go ]] || {
+              echo "::error::Script path must resolve to a file inside the working directory."
+              exit 1
+            }
+            ;;
+          *) echo "::error::Script path must resolve inside the working directory." ; exit 1 ;;
+        esac
+        if [[ "$RUNTIME" == terraform || "$RUNTIME" == go ]]; then
+          [[ -d "$target" ]] || { echo "::error::script-path must be a directory for Go and Terraform." ; exit 1; }
+        else
+          [[ -f "$target" ]] || { echo "::error::script-path must be a file (or a Go package directory)." ; exit 1; }
+        fi
+        echo "target=$target" >> "$GITHUB_OUTPUT"
+    - name: Run Go tests
+      if: inputs.runtime == 'go'
+      shell: bash
+      env:
+        TARGET: ${{ steps.paths.outputs.target }}
+      run: |
+        set -euo pipefail
+        cd -- "$TARGET"
+        go test ./...
+    - name: Run Python script
+      if: inputs.runtime == 'python'
+      shell: bash
+      env:
+        TARGET: ${{ steps.paths.outputs.target }}
+      run: python "$TARGET"
+    - name: Run Node.js script
+      if: inputs.runtime == 'node'
+      shell: bash
+      env:
+        TARGET: ${{ steps.paths.outputs.target }}
+      run: node "$TARGET"
+    - name: Run .NET tests
+      if: inputs.runtime == 'dotnet'
+      shell: bash
+      env:
+        TARGET: ${{ steps.paths.outputs.target }}
+      run: dotnet test "$TARGET"
+    - name: Validate Terraform configuration without a backend
+      if: inputs.runtime == 'terraform'
+      shell: bash
+      env:
+        TARGET: ${{ steps.paths.outputs.target }}
+      run: |
+        set -euo pipefail
+        terraform -chdir="$TARGET" init -backend=false -input=false
+        terraform -chdir="$TARGET" validate -no-color

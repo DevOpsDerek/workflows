@@ -184,6 +184,75 @@ interfaces do not accept or `eval` caller-provided shell command text. Checks
 still execute code from the caller checkout, so keep credentials out of the
 job and preserve the repository's existing fork/untrusted-PR policy.
 
+## Lint Swift on macOS
+
+Path: `.github/workflows/swiftlint.yml` (a top-level reusable workflow, separate
+from the language/IaC lint catalog).
+
+| Input | Type | Default / contract |
+| --- | --- | --- |
+| `swiftlint-version` | string | `0.65.1`; exact three-part release, no `v`, ranges, or prereleases |
+| `xcode-version` | string | `16.4`; exact installed Xcode release, not `latest` |
+| `source-roots` | string | Required non-empty JSON array of repository-relative directories |
+| `config-path` | string | Required repository-relative caller-owned `.yml` or `.yaml` file |
+| `strict` | boolean | `true`; warnings fail the check as well as errors |
+
+The workflow uses `macos-15`, selects the requested installed Xcode release
+through `DEVELOPER_DIR`, verifies its version, and prints its Swift toolchain
+version. Xcode pins the toolchain/SDK selection; runner images remain
+GitHub-managed, so a removed Xcode release fails explicitly rather than silently
+switching toolchains. Match the caller's build Xcode release when adopting it.
+
+SwiftLint is downloaded from its exact official release's
+`portable_swiftlint.zip`, installed in an isolated temporary directory, and
+version-checked before use. This is a version pin, not an independently pinned
+archive checksum. There is no Homebrew upgrade or fallback to a preinstalled
+SwiftLint. Only `lint` runs: no analyzer, build, formatter, `--fix`, or source
+mutation. Diagnostics use the GitHub Actions reporter and preserve SwiftLint's
+nonzero exit status; `strict: false` retains normal error-only failure behavior.
+
+Each root must exist and contain Swift files. Absolute paths, traversal,
+globs, empty/duplicate roots, control characters, and symlinks (including inside
+source trees) are rejected. Overlapping roots are deduplicated. Files from all
+roots are passed as literal script-input-file environment values in one lint
+invocation, so caller settings are applied consistently. `--force-exclude`
+honors caller-owned exclusions; do not exclude an entire root that you intend
+to lint. No rules or severity policy are supplied by the catalog, and there is
+no arbitrary command/argument input. Review caller configs, including nested,
+parent/remote configs and custom rules, as trusted policy; this is not a
+sandbox for untrusted configuration.
+
+The workflow checks out the caller with persisted credentials disabled, grants
+only `contents: read`, and accepts no secrets. Call it from ordinary PR/push
+checks, not credential-bearing `pull_request_target` jobs.
+
+Example caller for both application and test sources (add `.swiftlint.yml`
+and choose its rules in the caller repository):
+
+```yaml
+name: Swift lint
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  swiftlint:
+    uses: DevOpsDerek/workflows/.github/workflows/swiftlint.yml@0bc15e409d9e00429e6ace3b4c535c23765ff073
+    with:
+      swiftlint-version: 0.65.1
+      xcode-version: '16.4'
+      source-roots: '["Supercar", "SupercarTests"]'
+      config-path: .swiftlint.yml
+      strict: true
+```
+
+No consumer repository is changed by publishing this workflow. Contract tests
+run the embedded validation/invocation code with isolated app/test fixtures
+and a fake linter to check argument boundaries and exit codes:
+`python3 tests/swiftlint_contracts.py`.
+
 ## Check Python syntax without executing code
 
 Path: `.github/actions/check-python-syntax/action.yml`

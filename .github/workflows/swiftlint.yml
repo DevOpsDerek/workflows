@@ -1,0 +1,169 @@
+name: Lint Swift with pinned SwiftLint
+
+on:
+  workflow_call:
+    inputs:
+      swiftlint-version:
+        description: Exact three-part SwiftLint release version.
+        type: string
+        required: false
+        default: 0.65.1
+      xcode-version:
+        description: Exact installed Xcode release (major.minor or major.minor.patch).
+        type: string
+        required: false
+        default: '16.4'
+      source-roots:
+        description: JSON array of explicit repository-relative source directories (no globs).
+        type: string
+        required: true
+      config-path:
+        description: Required repository-relative caller-owned SwiftLint YAML configuration.
+        type: string
+        required: true
+      strict:
+        description: Fail on warnings as well as errors.
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: SwiftLint
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate versions, configuration, and source roots
+        shell: python
+        env:
+          SWIFTLINT_VERSION: ${{ inputs.swiftlint-version }}
+          XCODE_VERSION: ${{ inputs.xcode-version }}
+          SOURCE_ROOTS: ${{ inputs.source-roots }}
+          CONFIG_PATH: ${{ inputs.config-path }}
+        run: |
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def validate():
+              if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", os.environ["SWIFTLINT_VERSION"]):
+                  raise ValueError("swiftlint-version must be an exact three-part release version")
+              if not re.fullmatch(r"[1-9][0-9]*\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?", os.environ["XCODE_VERSION"]):
+                  raise ValueError("xcode-version must be an exact release version")
+              workspace = pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve(strict=True)
+
+              def repository_path(value, kind):
+                  if not isinstance(value, str) or not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
+                      raise ValueError("paths must be non-empty strings without control characters")
+                  parts = value.split("/")
+                  if any(part in ("", ".", "..") for part in parts) or "\\" in value or any(c in value for c in "*?[]"):
+                      raise ValueError("paths must be explicit repository-relative paths without traversal or globs")
+                  target = workspace
+                  for part in parts:
+                      target = target / part
+                      if target.is_symlink():
+                          raise ValueError("symlinked paths are not supported")
+                  target = target.resolve(strict=True)
+                  if not target.is_relative_to(workspace):
+                      raise ValueError("paths must remain inside the caller checkout")
+                  if not (target.is_dir() if kind == "directory" else target.is_file()):
+                      raise ValueError(f"path must be a {kind}: {value}")
+                  return target
+
+              roots = json.loads(os.environ["SOURCE_ROOTS"])
+              if not isinstance(roots, list) or not roots:
+                  raise ValueError("source-roots must be a non-empty JSON array")
+              directories = [repository_path(root, "directory") for root in roots]
+              if len(set(directories)) != len(directories):
+                  raise ValueError("source-roots must not contain duplicates")
+              config = repository_path(os.environ["CONFIG_PATH"], "file")
+              if config.suffix not in (".yml", ".yaml"):
+                  raise ValueError("config-path must name a caller-owned YAML file")
+              sources = set()
+              for directory in directories:
+                  files = set()
+                  for parent, children, names in os.walk(directory, followlinks=False):
+                      for name in children + names:
+                          if (pathlib.Path(parent) / name).is_symlink():
+                              raise ValueError("source roots must not contain symlinks")
+                      files.update(str(pathlib.Path(parent) / name) for name in names if name.endswith(".swift"))
+                  if not files:
+                      raise ValueError(f"source root contains no Swift files: {directory.relative_to(workspace)}")
+                  sources.update(files)
+              manifest = {"config": str(config), "sources": sorted(sources)}
+              (pathlib.Path(os.environ["RUNNER_TEMP"]) / "swiftlint-inputs.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+          try:
+              validate()
+          except (ValueError, OSError) as error:
+              print(f"::error::{error}", file=sys.stderr)
+              sys.exit(1)
+      - name: Select and verify pinned Xcode
+        shell: bash
+        env:
+          XCODE_VERSION: ${{ inputs.xcode-version }}
+        run: |
+          set -euo pipefail
+          developer_dir="/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          [[ -d "$developer_dir" ]] || {
+            echo "::error::Requested Xcode release is not installed on macos-15."
+            exit 1
+          }
+          actual="$(DEVELOPER_DIR="$developer_dir" xcodebuild -version | head -n 1)"
+          [[ "$actual" == "Xcode $XCODE_VERSION" ]] || {
+            echo "::error::Installed Xcode does not match the requested release."
+            exit 1
+          }
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$developer_dir" xcrun swift --version
+      - name: Install exact SwiftLint release
+        shell: bash
+        env:
+          SWIFTLINT_VERSION: ${{ inputs.swiftlint-version }}
+        run: |
+          set -euo pipefail
+          install_dir="$(mktemp -d "$RUNNER_TEMP/swiftlint.XXXXXX")"
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://github.com/realm/SwiftLint/releases/download/$SWIFTLINT_VERSION/portable_swiftlint.zip" \
+            --output "$install_dir/swiftlint.zip"
+          unzip -q "$install_dir/swiftlint.zip" -d "$install_dir/tool"
+          chmod +x "$install_dir/tool/swiftlint"
+          [[ "$("$install_dir/tool/swiftlint" version)" == "$SWIFTLINT_VERSION" ]] || {
+            echo "::error::Downloaded SwiftLint does not match the requested release."
+            exit 1
+          }
+          echo "SWIFTLINT_BINARY=$install_dir/tool/swiftlint" >> "$GITHUB_ENV"
+      - name: Lint only the validated Swift sources
+        shell: python
+        env:
+          STRICT: ${{ inputs.strict }}
+        run: |
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+
+          manifest = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"]) / "swiftlint-inputs.json").read_text(encoding="utf-8"))
+          env = os.environ.copy()
+          env["SCRIPT_INPUT_FILE_COUNT"] = str(len(manifest["sources"]))
+          for index, source in enumerate(manifest["sources"]):
+              env[f"SCRIPT_INPUT_FILE_{index}"] = source
+          command = [
+              os.environ["SWIFTLINT_BINARY"], "lint", "--config", manifest["config"],
+              "--use-script-input-files", "--force-exclude", "--no-cache", "--reporter", "github-actions-logging",
+          ]
+          if os.environ["STRICT"] == "true":
+              command.append("--strict")
+          sys.exit(subprocess.run(command, env=env, cwd=os.environ["GITHUB_WORKSPACE"], check=False).returncode)

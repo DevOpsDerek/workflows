@@ -18,7 +18,7 @@ PATTERNS = {
 }
 LINT_WORKFLOWS = {
     "python-ruff": {
-        "path": ".github/workflows/lint/python-ruff.yml",
+        "path": ".github/workflows/lint-python-ruff.yml",
         "inputs": {
             "python-version": "3.12.8",
             "ruff-version": "0.11.13",
@@ -26,7 +26,7 @@ LINT_WORKFLOWS = {
         },
     },
     "go": {
-        "path": ".github/workflows/lint/go.yml",
+        "path": ".github/workflows/lint-go.yml",
         "inputs": {
             "go-version": "1.22.12",
             "golangci-lint-version": "1.64.8",
@@ -34,15 +34,15 @@ LINT_WORKFLOWS = {
         },
     },
     "rust": {
-        "path": ".github/workflows/lint/rust.yml",
+        "path": ".github/workflows/lint-rust.yml",
         "inputs": {"rust-version": "1.86.0", "working-directory": "src"},
     },
     "shell": {
-        "path": ".github/workflows/lint/shell.yml",
+        "path": ".github/workflows/lint-shell.yml",
         "inputs": {"shellcheck-version": "0.10.0", "working-directory": "scripts"},
     },
     "powershell": {
-        "path": ".github/workflows/lint/powershell.yml",
+        "path": ".github/workflows/lint-powershell.yml",
         "inputs": {
             "psscriptanalyzer-version": "1.24.0",
             "working-directory": "scripts",
@@ -50,7 +50,7 @@ LINT_WORKFLOWS = {
         },
     },
     "markdown": {
-        "path": ".github/workflows/lint/markdown.yml",
+        "path": ".github/workflows/lint-markdown.yml",
         "inputs": {
             "node-version": "22.15.0",
             "markdownlint-cli2-version": "0.17.2",
@@ -59,11 +59,11 @@ LINT_WORKFLOWS = {
         },
     },
     "terraform": {
-        "path": ".github/workflows/lint/terraform.yml",
+        "path": ".github/workflows/lint-terraform.yml",
         "inputs": {"terraform-version": "1.11.4", "working-directory": "infra"},
     },
     "helm": {
-        "path": ".github/workflows/lint/helm.yml",
+        "path": ".github/workflows/lint-helm.yml",
         "inputs": {"helm-version": "3.17.3", "chart-path": "charts/example"},
     },
 }

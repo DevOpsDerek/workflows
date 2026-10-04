@@ -66,14 +66,22 @@ def input_contract(text):
 
 
 class LintWorkflowContractTests(unittest.TestCase):
+    def test_reusable_workflows_are_top_level(self):
+        workflows = ROOT / ".github/workflows"
+        for path in workflows.rglob("*.yml"):
+            if "  workflow_call:" in path.read_text(encoding="utf-8"):
+                with self.subTest(workflow=str(path.relative_to(ROOT))):
+                    self.assertEqual(path.parent, workflows)
+
     def test_workflow_signatures_and_defaults(self):
         self.assertEqual(set(CONTRACTS), {
-            path.stem for path in (ROOT / ".github/workflows/lint").glob("*.yml")
+            path.stem.removeprefix("lint-")
+            for path in (ROOT / ".github/workflows").glob("lint-*.yml")
         })
         for name, expected in CONTRACTS.items():
             with self.subTest(workflow=name):
                 text = (
-                    ROOT / ".github/workflows/lint" / f"{name}.yml"
+                    ROOT / ".github/workflows" / f"lint-{name}.yml"
                 ).read_text(encoding="utf-8")
                 self.assertIn("on:\n  workflow_call:\n", text)
                 actual = input_contract(text)
@@ -93,7 +101,7 @@ class LintWorkflowContractTests(unittest.TestCase):
                         self.assertEqual(actual[key].get("default"), default)
 
     def test_caller_inputs_are_not_interpolated_as_shell(self):
-        for path in (ROOT / ".github/workflows/lint").glob("*.yml"):
+        for path in (ROOT / ".github/workflows").glob("lint-*.yml"):
             with self.subTest(workflow=path.name):
                 in_run_block = False
                 for line in path.read_text(encoding="utf-8").splitlines():
@@ -106,12 +114,12 @@ class LintWorkflowContractTests(unittest.TestCase):
                         self.assertNotIn("${{ inputs.", line)
 
     def test_known_consumer_contracts_and_failure_modes(self):
-        python = (ROOT / ".github/workflows/lint/python-ruff.yml").read_text()
-        go = (ROOT / ".github/workflows/lint/go.yml").read_text()
-        shell = (ROOT / ".github/workflows/lint/shell.yml").read_text()
-        powershell = (ROOT / ".github/workflows/lint/powershell.yml").read_text()
-        terraform = (ROOT / ".github/workflows/lint/terraform.yml").read_text()
-        markdown = (ROOT / ".github/workflows/lint/markdown.yml").read_text()
+        python = (ROOT / ".github/workflows/lint-python-ruff.yml").read_text()
+        go = (ROOT / ".github/workflows/lint-go.yml").read_text()
+        shell = (ROOT / ".github/workflows/lint-shell.yml").read_text()
+        powershell = (ROOT / ".github/workflows/lint-powershell.yml").read_text()
+        terraform = (ROOT / ".github/workflows/lint-terraform.yml").read_text()
+        markdown = (ROOT / ".github/workflows/lint-markdown.yml").read_text()
         self.assertIn("ruff check --no-fix .", python)
         self.assertIn("ruff format --check .", python)
         self.assertIn("releases/download/v$LINTER_VERSION", go)
@@ -126,7 +134,7 @@ class LintWorkflowContractTests(unittest.TestCase):
         self.assertIn('markdown-paths entries must not contain parent-directory components.', markdown)
 
     def test_markdown_globs_are_validated_and_passed_as_literal_arguments(self):
-        workflow = (ROOT / ".github/workflows/lint/markdown.yml").read_text()
+        workflow = (ROOT / ".github/workflows/lint-markdown.yml").read_text()
         lines = workflow.split("      - name: Lint Markdown\n", 1)[1].splitlines()
         start = lines.index("        run: |") + 1
         script_lines = []

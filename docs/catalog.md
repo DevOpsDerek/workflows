@@ -353,7 +353,7 @@ workflow, separate from `lint-markdown.yml`, whose API is unchanged).
 | Input | Type | Default / contract |
 | --- | --- | --- |
 | `python-version` | string | `3.12.8`; exact three-part version for the bundled checker, verified at run time |
-| `working-directory` | string | `.`; repository-relative directory without traversal or symlinks |
+| `working-directory` | string | `.`; repository-relative directory without traversal, `.git`, or symlinks |
 | `markdown-paths` | string | `**/*.md`; newline-separated globs relative to `working-directory` |
 | `exclude-paths` | string | Empty; newline-separated globs of Markdown files to skip |
 | `exclude-links` | string | Empty; newline-separated literal link-target prefixes to skip |

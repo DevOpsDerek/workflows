@@ -274,21 +274,25 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
         self.assertIn(f"::error file=external.md,line=2::Transient failure for external link '{b}/down' after 1 attempt(s)", result.stdout)
 
     def test_confirmed_broken_external_links_fail_regardless_of_policy(self):
-        self.write("external.md", f"[missing]({self.base}/missing)\n[gone]({self.base}/gone)\n[bad](https://)\n")
+        self.write("external.md", f"[missing]({self.base}/missing)\n[gone]({self.base}/gone)\n[bad](https://)\n"
+                   f"[again]({self.base}/missing#section)\n[ipv6](http://[::1/x)\n")
         for policy in ("false", "true"):
             with self.subTest(policy=policy):
                 result = self.run_check(EXTERNAL_LINKS="check", FAIL_ON_UNCONFIRMED=policy)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
                 self.assertIn(f"::error file=external.md,line=1::Broken external link '{self.base}/missing': confirmed HTTP 404", result.stdout)
+                self.assertIn(f"::error file=external.md,line=4::Broken external link '{self.base}/missing': confirmed HTTP 404", result.stdout)
                 self.assertIn(f"'{self.base}/gone': confirmed HTTP 410", result.stdout)
                 self.assertIn("'https://': confirmed invalid URL", result.stdout)
+                self.assertIn("::error file=external.md,line=5::Broken external link 'http://[::1/x': confirmed invalid URL", result.stdout)
         self.assertEqual(Handler.counts["/missing"], 2)
 
     def test_input_rejections_and_literal_handling(self):
         marker = self.root / "marker"
         invalid = {
             "PYTHON_VERSION": ["0.0.1"],
-            "WORKING_DIRECTORY": ["", "/tmp", "../caller", "docs/../docs", "docs/", "missing", "docs\\images"],
+            "WORKING_DIRECTORY": ["", "/tmp", "../caller", "docs/../docs", "docs/", "missing", "docs\\images", ".git", "docs/.git"],
             "MARKDOWN_PATHS": ["", "\n", "/etc/*.md", "../*.md", "docs\\*.md", " README.md", "missing/*.md"],
             "EXCLUDE_PATHS": ["../x", "**/*.md"],
             "EXCLUDE_LINKS": ["bad\x01prefix"],

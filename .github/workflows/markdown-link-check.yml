@@ -191,8 +191,8 @@ jobs:
               target = workspace
               if directory_value != ".":
                   parts = directory_value.split("/")
-                  if CONTROL.search(directory_value) or "\\" in directory_value or any(part in ("", ".", "..") for part in parts):
-                      raise InputError("working-directory must be '.' or a repository-relative directory without traversal")
+                  if CONTROL.search(directory_value) or "\\" in directory_value or any(part in ("", ".", "..", ".git") for part in parts):
+                      raise InputError("working-directory must be '.' or a repository-relative directory without traversal or .git")
                   for part in parts:
                       target = target / part
                       if target.is_symlink():
@@ -335,9 +335,12 @@ jobs:
 
 
           def check_external(url, settings, deadline):
-              clean = urllib.parse.urldefrag(url)[0]
-              parsed = urllib.parse.urlsplit(clean)
-              if not parsed.hostname:
+              clean = url.split("#", 1)[0]
+              try:
+                  hostname = urllib.parse.urlsplit(clean).hostname
+              except ValueError as error:
+                  return ("broken", f"invalid URL: {error}", 0)
+              if not hostname:
                   return ("broken", "invalid URL: missing host", 0)
               attempts = 0
               while True:
@@ -371,7 +374,7 @@ jobs:
                       counts["skipped"] += 1
                   elif SCHEME.match(target):
                       if target.lower().startswith(("http://", "https://")) and settings["check_external"]:
-                          external.setdefault(target, []).append((source, line))
+                          external.setdefault(target.split("#", 1)[0], []).append((source, line))
                       else:
                           counts["skipped"] += 1
                   elif target.startswith("//"):

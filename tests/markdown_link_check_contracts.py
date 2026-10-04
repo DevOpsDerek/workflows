@@ -288,6 +288,18 @@ class MarkdownLinkCheckContracts(unittest.TestCase):
                 self.assertIn("::error file=external.md,line=5::Broken external link 'http://[::1/x': confirmed invalid URL", result.stdout)
         self.assertEqual(Handler.counts["/missing"], 2)
 
+    def test_python_version_step_requires_exact_supported_version(self):
+        script = embedded_script("Validate exact Python version")
+        for value, code in (("3.12.8", 0), ("3.9.0", 0), ("4.0.0", 0), ("3.8.18", 1), ("2.7.18", 1), ("3.12", 1), ("3.12.x", 1)):
+            with self.subTest(value=value):
+                result = subprocess.run(
+                    ["bash", "-c", script], env={**os.environ, "PYTHON_VERSION": value},
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                if code:
+                    self.assertIn("::error::python-version must be", result.stdout)
+
     def test_input_rejections_and_literal_handling(self):
         marker = self.root / "marker"
         invalid = {

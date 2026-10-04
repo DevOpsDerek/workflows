@@ -99,27 +99,50 @@ def generated_job_permissions(lock_text):
     except ValueError:
         raise SystemExit("generated gh-aw lock has no jobs section")
 
-    permissions = {}
+    jobs = {}
+    permissions_seen = set()
     current_job = None
     index = jobs_start + 1
     while index < len(lines):
         line = lines[index]
-        if line and not line.startswith(" "):
+        if line and not line.startswith((" ", "#")):
             break
-        if re.fullmatch(r"  [A-Za-z0-9_-]+:", line):
-            current_job = line.strip()[:-1]
-        elif current_job and line == "    permissions:":
+        job_match = re.fullmatch(r"  ([^ ].*?):(?:\s*(?:#.*)?)", line)
+        if job_match:
+            current_job = job_match.group(1)
+            jobs[current_job] = None
+        elif current_job and line.startswith("    permissions:"):
+            if current_job in permissions_seen:
+                jobs[current_job] = None
+                index += 1
+                continue
+            permissions_seen.add(current_job)
+            inline = re.fullmatch(r"    permissions:\s*(.*)", line).group(1)
+            if inline:
+                jobs[current_job] = {} if inline == "{}" else None
+                index += 1
+                continue
+
             scopes = {}
             index += 1
-            while index < len(lines) and lines[index].startswith("      "):
-                match = re.fullmatch(r"      ([A-Za-z0-9_-]+): ([A-Za-z]+)", lines[index])
-                if match:
+            valid = True
+            while index < len(lines):
+                scope_line = lines[index]
+                if not scope_line.strip() or scope_line.lstrip().startswith("#"):
+                    index += 1
+                    continue
+                if not scope_line.startswith("      "):
+                    break
+                match = re.fullmatch(r"      ([A-Za-z0-9_-]+): ([A-Za-z]+)", scope_line)
+                if not match or match.group(1) in scopes:
+                    valid = False
+                else:
                     scopes[match.group(1)] = match.group(2)
                 index += 1
-            permissions[current_job] = scopes
+            jobs[current_job] = scopes if valid else None
             continue
         index += 1
-    return permissions
+    return jobs
 
 
 def main():
@@ -272,6 +295,10 @@ Follow the imported {name} instructions.
                     f"{name} lock does not exercise the concurrency.queue compatibility case"
                 )
             jobs = generated_job_permissions(lock_text)
+            if any(scopes is None for scopes in jobs.values()):
+                raise SystemExit(
+                    f"{name} generated jobs must each have an explicit permissions map"
+                )
             agent_permissions = jobs.get("agent")
             if not agent_permissions or any(
                 level == "write" for level in agent_permissions.values()

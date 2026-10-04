@@ -11,6 +11,11 @@ triggers, existing labels, toolsets, and test commands to each repository.
 They are intentionally independent so a consumer can choose a suitable
 pattern without inheriting another pattern's trigger or permissions.
 
+For findings-only requirements, do not reuse the patterns below: they permit
+bounded GitHub writes. See the distinct [report-only proposals and compiler
+blocker](report-only-contracts.md). They are not runnable with the supported
+compiler and must wait for separate consumer adoption tickets.
+
 ## Issue triage
 
 The component proposes a concise summary, an existing label where evidence

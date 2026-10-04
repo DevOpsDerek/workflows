@@ -102,6 +102,13 @@ commit both `.github/workflows/<name>.md` and the generated
 `.github/workflows/<name>.lock.yml`; the central Markdown components do not
 replace those local trigger/configuration files.
 
+Four distinct [report-only contract proposals](report-only-contracts.md) cover
+CI failures, IaC/platform/supply-chain PR review, test/lesson consistency, and
+documentation/configuration drift. **Runtime adoption is blocked**: the
+supported gh-aw v0.89.21 compiler injects issue creation even when system
+outputs are disabled. These proposals are not deployable catalog patterns;
+the existing write-capable interfaces above remain unchanged.
+
 ## Run a version-pinned check
 
 This is a deliberately narrow helper, not a replacement for repository-specific

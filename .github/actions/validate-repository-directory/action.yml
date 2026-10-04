@@ -26,4 +26,4 @@ runs:
         PATH_NAME: ${{ inputs.name }}
         PATH_KIND: ${{ inputs.kind }}
         WORKSPACE_ROOT: ${{ github.workspace }}
-      run: bash "$GITHUB_ACTION_PATH/validate.sh"
+      run: python3 "$GITHUB_ACTION_PATH/validate.py"

@@ -78,13 +78,16 @@ jobs:
             throw "No .ps1, .psm1, or .psd1 files found under working-directory."
           }
           $parameters = @{
-            Path = $scripts
             Severity = @("Error", "Warning")
           }
           if ($env:SETTINGS) {
             $parameters.Settings = $env:SETTINGS
           }
-          $diagnostics = @(Invoke-ScriptAnalyzer @parameters)
+          $diagnostics = @(
+            foreach ($script in $scripts) {
+              Invoke-ScriptAnalyzer -Path $script @parameters
+            }
+          )
           if ($diagnostics.Count -gt 0) {
             $diagnostics | Format-Table -AutoSize | Out-String | Write-Output
             exit 1

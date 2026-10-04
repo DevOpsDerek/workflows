@@ -11,7 +11,7 @@ import tempfile
 PATTERNS = {
     "issue-triage": "Use the single safe-output comment",
     "ci-failure-diagnosis": "completed workflow run",
-    "test-quality": "test-only improvement",
+    "test-quality": "test-only change",
     "documentation-upkeep": "documentation-only correction",
 }
 
@@ -61,6 +61,7 @@ Follow the imported {name} instructions.
                 encoding="utf-8",
             )
 
+        subprocess.run(["git", "init", "--quiet"], check=True, cwd=temp)
         env = os.environ.copy()
         subprocess.run(
             [
@@ -71,10 +72,11 @@ Follow the imported {name} instructions.
                 "--actionlint",
                 "--no-check-update",
                 "--dir",
-                str(workflow_dir),
+                ".github/workflows",
             ],
             check=True,
             env=env,
+            cwd=temp,
         )
         for name, expected in PATTERNS.items():
             lock_file = workflow_dir / f"{name}.lock.yml"

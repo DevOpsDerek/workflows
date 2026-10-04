@@ -65,6 +65,8 @@ def validate_generated_lock(text):
     jobs = generated_job_permissions(text)
     if not jobs or "agent" not in jobs:
         raise ValueError("generated lock must declare agent permissions")
+    if any(scopes is None for scopes in jobs.values()):
+        raise ValueError("every generated job must declare a parsed permissions map")
     if any(level not in {"read", "none"} for scopes in jobs.values() for level in scopes.values()):
         raise ValueError("generated lock grants write permissions")
     if re.search(r"^  safe_outputs:|GH_AW_SAFE_OUTPUTS_CONFIG:", text, re.MULTILINE):
@@ -114,9 +116,35 @@ class ReportOnlyTests(unittest.TestCase):
             "jobs:\n  agent:\n    permissions:\n      contents: read\n"
         )
         validate_generated_lock(readonly)
+        for incomplete in (
+            readonly + "  inherited:\n    runs-on: ubuntu-latest\n",
+            (
+                '# gh-aw-manifest: {"mcp_servers": []}\n'
+                "permissions:\n  contents: write\n"
+                "jobs:\n  agent:\n    permissions:\n      contents: read\n"
+                "  inherited:\n    runs-on: ubuntu-latest\n"
+            ),
+            (
+                '# gh-aw-manifest: {"mcp_servers": []}\n'
+                "jobs:\n  agent:\n    permissions: {contents: read}\n"
+            ),
+            (
+                '# gh-aw-manifest: {"mcp_servers": []}\n'
+                "jobs:\n  agent:\n    permissions: write-all\n"
+            ),
+        ):
+            with self.subTest(lock=incomplete), self.assertRaisesRegex(
+                ValueError, "every generated job"
+            ):
+                validate_generated_lock(incomplete)
         for scope in ("issues", "pull-requests", "contents", "actions", "id-token"):
+            writable = (
+                readonly.replace("contents: read", "contents: write")
+                if scope == "contents"
+                else readonly + f"      {scope}: write\n"
+            )
             with self.subTest(scope=scope), self.assertRaisesRegex(ValueError, "write permissions"):
-                validate_generated_lock(readonly + f"      {scope}: write\n")
+                validate_generated_lock(writable)
         with self.assertRaisesRegex(ValueError, "safe outputs"):
             validate_generated_lock(readonly + "  safe_outputs:\n    permissions:\n      contents: read\n")
         with self.assertRaisesRegex(ValueError, "safe outputs"):

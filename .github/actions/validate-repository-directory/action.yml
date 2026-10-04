@@ -1,0 +1,54 @@
+name: Validate repository directory
+description: Resolve a repository-relative directory and reject traversal or symlink escapes.
+inputs:
+  path:
+    description: Non-empty repository-relative directory path.
+    required: true
+  name:
+    description: Label used in validation errors.
+    required: false
+    default: Path
+outputs:
+  absolute-path:
+    description: Validated absolute directory path.
+    value: ${{ steps.validate.outputs.absolute-path }}
+runs:
+  using: composite
+  steps:
+    - id: validate
+      shell: bash
+      env:
+        REPOSITORY_PATH: ${{ inputs.path }}
+        PATH_NAME: ${{ inputs.name }}
+        GITHUB_WORKSPACE: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        workspace="$(cd -- "$GITHUB_WORKSPACE" && pwd -P)"
+        case "$REPOSITORY_PATH" in
+          ""|/*|*$'\n'*)
+            echo "::error::$PATH_NAME must be a non-empty repository-relative path."
+            exit 1
+            ;;
+        esac
+        case "/$REPOSITORY_PATH/" in
+          *"/../"*)
+            echo "::error::$PATH_NAME must not contain parent-directory components."
+            exit 1
+            ;;
+        esac
+        if ! resolved="$(realpath -- "$workspace/$REPOSITORY_PATH")"; then
+          echo "::error::$PATH_NAME does not exist."
+          exit 1
+        fi
+        case "$resolved/" in
+          "$workspace/"*) ;;
+          *)
+            echo "::error::$PATH_NAME must resolve inside the checked-out repository."
+            exit 1
+            ;;
+        esac
+        if [[ ! -d "$resolved" ]]; then
+          echo "::error::$PATH_NAME must be a directory."
+          exit 1
+        fi
+        printf 'absolute-path=%s\n' "$resolved" >> "$GITHUB_OUTPUT"

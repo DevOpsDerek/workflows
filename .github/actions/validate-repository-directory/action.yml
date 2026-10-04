@@ -1,5 +1,5 @@
-name: Validate repository directory
-description: Resolve a repository-relative directory and reject traversal or symlink escapes.
+name: Validate repository path
+description: Resolve a repository-relative path and reject traversal or symlink escapes.
 inputs:
   path:
     description: Non-empty repository-relative directory path.
@@ -8,6 +8,10 @@ inputs:
     description: Label used in validation errors.
     required: false
     default: Path
+  kind:
+    description: Expected target type, either file or directory.
+    required: false
+    default: directory
 outputs:
   absolute-path:
     description: Validated absolute directory path.
@@ -20,10 +24,18 @@ runs:
       env:
         REPOSITORY_PATH: ${{ inputs.path }}
         PATH_NAME: ${{ inputs.name }}
+        PATH_KIND: ${{ inputs.kind }}
         GITHUB_WORKSPACE: ${{ github.workspace }}
       run: |
         set -euo pipefail
         workspace="$(cd -- "$GITHUB_WORKSPACE" && pwd -P)"
+        case "$PATH_KIND" in
+          file|directory) ;;
+          *)
+            echo "::error::Path kind must be 'file' or 'directory'."
+            exit 1
+            ;;
+        esac
         case "$REPOSITORY_PATH" in
           ""|/*|*$'\n'*)
             echo "::error::$PATH_NAME must be a non-empty repository-relative path."
@@ -47,7 +59,10 @@ runs:
             exit 1
             ;;
         esac
-        if [[ ! -d "$resolved" ]]; then
+        if [[ "$PATH_KIND" == file && ! -f "$resolved" ]]; then
+          echo "::error::$PATH_NAME must be a file."
+          exit 1
+        elif [[ "$PATH_KIND" == directory && ! -d "$resolved" ]]; then
           echo "::error::$PATH_NAME must be a directory."
           exit 1
         fi

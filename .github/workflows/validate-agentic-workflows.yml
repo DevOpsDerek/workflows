@@ -156,6 +156,20 @@ jobs:
         run: |
           echo "::error::A Python directory source path was accepted."
           exit 1
+      - name: Create a symlinked Python source parent
+        run: ln -s "$GITHUB_WORKSPACE/tests/fixtures/python" tests/fixtures/python/syntax-directory-link
+      - name: Reject a Python source through a symlinked parent
+        id: python-parent-symlink
+        continue-on-error: true
+        uses: ./.github/actions/check-python-syntax
+        with:
+          python-version: 3.12.8
+          source-path: tests/fixtures/python/syntax-directory-link/not_executed.py
+      - name: Assert a symlinked Python source parent was rejected
+        if: steps.python-parent-symlink.outcome != 'failure'
+        run: |
+          echo "::error::A Python source through a symlinked parent was accepted."
+          exit 1
       - name: Reject unsupported runtime
         id: unsupported
         continue-on-error: true
